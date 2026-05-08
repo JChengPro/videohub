@@ -41,3 +41,6 @@ backend_bak/
 
 # Study compose file is local-only
 docker-compose.study.yml
+
+# RabbitMQ local data
+data/
