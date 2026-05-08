@@ -2,90 +2,67 @@ package social
 
 import (
 	"context"
-	"feedsystem_video_go/internal/account"
+
+	"backend/internal/account"
 
 	"gorm.io/gorm"
 )
 
-type SocialRepository struct {
+type Repository struct {
 	db *gorm.DB
 }
 
-func NewSocialRepository(db *gorm.DB) *SocialRepository {
-	return &SocialRepository{db: db}
+func NewRepository(db *gorm.DB) *Repository {
+	return &Repository{db: db}
 }
 
-func (r *SocialRepository) Follow(ctx context.Context, social *Social) error {
-	return r.db.WithContext(ctx).Create(social).Error
+func (r *Repository) Follow(ctx context.Context, relation *Social) error {
+	return r.db.WithContext(ctx).Create(relation).Error
 }
 
-func (r *SocialRepository) Unfollow(ctx context.Context, social *Social) error {
+func (r *Repository) Unfollow(ctx context.Context, followerID uint, vloggerID uint) error {
 	return r.db.WithContext(ctx).
-		Where("follower_id = ? AND vlogger_id = ?", social.FollowerID, social.VloggerID).
-		Delete(&Social{}).Error
+		Where("follower_id = ? AND vlogger_id = ?", followerID, vloggerID).
+		Delete(&Social{}).
+		Error
 }
 
-func (r *SocialRepository) GetAllFollowers(ctx context.Context, VloggerID uint) ([]*account.Account, error) {
-	var relations []Social
+func (r *Repository) IsFollowing(ctx context.Context, followerID uint, vloggerID uint) (bool, error) {
+	var count int64
 	if err := r.db.WithContext(ctx).
 		Model(&Social{}).
-		Where("vlogger_id = ?", VloggerID).
-		Find(&relations).Error; err != nil {
-		return nil, err
+		Where("follower_id = ? AND vlogger_id = ?", followerID, vloggerID).
+		Count(&count).
+		Error; err != nil {
+		return false, err
 	}
+	return count > 0, nil
+}
 
-	followerIDs := make([]uint, 0, len(relations))
-	for _, rel := range relations {
-		followerIDs = append(followerIDs, rel.FollowerID)
-	}
-	if len(followerIDs) == 0 {
-		return []*account.Account{}, nil
-	}
-
-	var followers []*account.Account
+// ListFollowers：查“谁关注了我”   vlogger_id：被关注者
+func (r *Repository) ListFollowers(ctx context.Context, vloggerID uint) ([]account.Account, error) {
+	var followers []account.Account
 	if err := r.db.WithContext(ctx).
 		Model(&account.Account{}).
-		Where("id IN ?", followerIDs).
-		Find(&followers).Error; err != nil {
+		Joins("JOIN socials ON socials.follower_id = accounts.id").
+		Where("socials.vlogger_id = ?", vloggerID).
+		Find(&followers).
+		Error; err != nil {
 		return nil, err
 	}
 	return followers, nil
 }
 
-func (r *SocialRepository) GetAllVloggers(ctx context.Context, FollowerID uint) ([]*account.Account, error) {
-	var relations []Social
-	if err := r.db.WithContext(ctx).
-		Model(&Social{}).
-		Where("follower_id = ?", FollowerID).
-		Find(&relations).Error; err != nil {
-		return nil, err
-	}
-
-	vloggerIDs := make([]uint, 0, len(relations))
-	for _, rel := range relations {
-		vloggerIDs = append(vloggerIDs, rel.VloggerID)
-	}
-	if len(vloggerIDs) == 0 {
-		return []*account.Account{}, nil
-	}
-
-	var vloggers []*account.Account
+// ListFollowing：查“我关注了谁”
+func (r *Repository) ListFollowing(ctx context.Context, followerID uint) ([]account.Account, error) {
+	var following []account.Account
 	if err := r.db.WithContext(ctx).
 		Model(&account.Account{}).
-		Where("id IN ?", vloggerIDs).
-		Find(&vloggers).Error; err != nil {
+		Joins("JOIN socials ON socials.vlogger_id = accounts.id").
+		Where("socials.follower_id = ?", followerID).
+		Find(&following).
+		Error; err != nil {
 		return nil, err
 	}
-	return vloggers, nil
-}
-
-func (r *SocialRepository) IsFollowed(ctx context.Context, social *Social) (bool, error) {
-	var count int64
-	if err := r.db.WithContext(ctx).
-		Model(&Social{}).
-		Where("follower_id = ? AND vlogger_id = ?", social.FollowerID, social.VloggerID).
-		Count(&count).Error; err != nil {
-		return false, err
-	}
-	return count > 0, nil
+	return following, nil
 }

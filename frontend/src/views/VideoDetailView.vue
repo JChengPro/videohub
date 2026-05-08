@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import AppShell from '../components/AppShell.vue'
@@ -20,6 +20,7 @@ const social = useSocialStore()
 const toast = useToastStore()
 
 const id = computed(() => Number(route.params.id))
+const isOwner = computed(() => !!state.video && auth.claims?.account_id === state.video.author_id)
 
 const state = reactive({
   loading: false,
@@ -31,6 +32,7 @@ const state = reactive({
 
 const muted = ref(true)
 const videoEl = ref<HTMLVideoElement | null>(null)
+const commentInput = ref<HTMLTextAreaElement | null>(null)
 
 const drawer = reactive({
   open: false,
@@ -155,11 +157,40 @@ async function share() {
   }
 }
 
+async function deleteVideo() {
+  if (!state.video) return
+  if (!auth.isLoggedIn) return needLogin()
+  if (!isOwner.value) {
+    toast.error('无权限删除此视频')
+    return
+  }
+  if (state.busy) return
+  if (!window.confirm('确认删除这个视频？相关点赞和评论也会一起删除。')) return
+
+  state.busy = true
+  try {
+    await videoApi.deleteVideo(state.video.id)
+    closeDrawer()
+    toast.info('视频已删除')
+    await router.replace('/account')
+  } catch (e) {
+    const msg = e instanceof ApiError ? e.message : String(e)
+    toast.error(msg)
+  } finally {
+    state.busy = false
+  }
+}
+
 function closeDrawer() {
   drawer.open = false
   drawer.comments = []
   drawer.content = ''
   drawer.error = ''
+}
+
+async function focusCommentInput() {
+  await nextTick()
+  commentInput.value?.focus()
 }
 
 async function loadComments() {
@@ -179,6 +210,7 @@ async function openComments() {
   drawer.open = true
   drawer.content = ''
   await loadComments()
+  await focusCommentInput()
 }
 
 async function publishComment() {
@@ -193,6 +225,7 @@ async function publishComment() {
     await commentApi.publish(state.video.id, content)
     drawer.content = ''
     await loadComments()
+    await focusCommentInput()
     toast.success('评论已发布')
   } catch (e) {
     drawer.error = e instanceof ApiError ? e.message : String(e)
@@ -226,6 +259,41 @@ async function deleteComment(commentId: number) {
   }
 }
 
+async function onKeydown(e: KeyboardEvent) {
+  const t = e.target as HTMLElement | null
+  const isTyping = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')
+  if (isTyping) {
+    if (e.key === 'Escape' && drawer.open) {
+      e.preventDefault()
+      closeDrawer()
+    }
+    return
+  }
+
+  if (e.key.toLowerCase() === 'c') {
+    e.preventDefault()
+    if (drawer.open) closeDrawer()
+    else if (state.video) await openComments()
+    return
+  }
+
+  if (drawer.open) {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      closeDrawer()
+    }
+    return
+  }
+
+  if (e.key === ' ') {
+    e.preventDefault()
+    togglePlayPause()
+  } else if (e.key.toLowerCase() === 'm') {
+    e.preventDefault()
+    toggleMute()
+  }
+}
+
 watch(
   () => id.value,
   async () => {
@@ -249,6 +317,11 @@ onMounted(async () => {
   await loadIsLiked()
   await nextTick()
   await play()
+  window.addEventListener('keydown', onKeydown)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
 })
 </script>
 
@@ -257,10 +330,10 @@ onMounted(async () => {
     <div class="page">
       <div class="top">
         <div class="top-left">
-          <RouterLink class="chip" to="/">← 返回推荐</RouterLink>
+          <RouterLink class="top-chip" to="/">返回推荐</RouterLink>
         </div>
         <div class="top-right">
-          <button class="chip" type="button" @click="toggleMute">{{ muted ? '静音' : '有声' }}</button>
+          <button class="top-chip" type="button" @click="toggleMute">{{ muted ? '静音' : '有声' }}</button>
         </div>
       </div>
 
@@ -268,7 +341,7 @@ onMounted(async () => {
         <div v-if="state.loading" class="center-hint">加载中…</div>
         <div v-else-if="state.error" class="center-hint bad">{{ state.error }}</div>
 
-        <div v-else-if="state.video" class="stage" @click="togglePlayPause">
+        <div v-else-if="state.video" class="stage" @click="togglePlayPause" @dblclick.prevent="toggleLike">
           <video
             ref="videoEl"
             class="video"
@@ -288,8 +361,8 @@ onMounted(async () => {
             <div class="title">{{ state.video.title }}</div>
             <div v-if="state.video.description" class="desc">{{ state.video.description }}</div>
             <div class="row" style="margin-top: 10px">
-              <a class="chip mono" :href="state.video.play_url" target="_blank" rel="noreferrer">play_url</a>
-              <a class="chip mono" :href="state.video.cover_url" target="_blank" rel="noreferrer">cover_url</a>
+              <a class="asset-link" :href="state.video.play_url" target="_blank" rel="noreferrer">播放地址</a>
+              <a class="asset-link" :href="state.video.cover_url" target="_blank" rel="noreferrer">封面地址</a>
             </div>
           </div>
 
@@ -319,11 +392,18 @@ onMounted(async () => {
               <span class="icon">↗</span>
               <span class="count">分享</span>
             </button>
+
+            <button v-if="isOwner" class="act act-danger" type="button" :disabled="state.busy" @click.stop="deleteVideo">
+              <span class="icon">删</span>
+              <span class="count">删除</span>
+            </button>
           </div>
 
           <div class="hint">
-            <span class="chip mono">点击 暂停/播放</span>
-            <span class="chip mono">双击 点赞</span>
+            <span class="hint-pill"><span>Click</span>暂停/播放</span>
+            <span class="hint-pill"><span>Double</span>点赞</span>
+            <span class="hint-pill"><span>C</span>评论</span>
+            <span class="hint-pill"><span>Esc</span>关闭</span>
           </div>
         </div>
       </div>
@@ -332,7 +412,7 @@ onMounted(async () => {
         <div class="drawer">
           <div class="drawer-head">
             <div class="drawer-title">评论</div>
-            <button class="drawer-x" type="button" @click="closeDrawer">×</button>
+            <button class="drawer-x" type="button" aria-label="关闭评论" @click="closeDrawer">×</button>
           </div>
 
           <div class="drawer-body">
@@ -343,13 +423,13 @@ onMounted(async () => {
             <div class="comment" v-for="c in drawer.comments" :key="c.id">
               <div class="comment-top">
                 <div class="comment-user">{{ c.username }}</div>
-                <div class="comment-meta mono">
+                <div class="comment-meta">
                   #{{ c.id }} · {{ new Date(c.created_at).toLocaleString() }}
                 </div>
               </div>
               <div class="comment-content">{{ c.content }}</div>
               <div class="comment-actions">
-                <button v-if="canDeleteComment(c)" class="chip danger" type="button" :disabled="drawer.loading" @click="deleteComment(c.id)">
+                <button v-if="canDeleteComment(c)" class="comment-action danger" type="button" :disabled="drawer.loading" @click="deleteComment(c.id)">
                   删除
                 </button>
               </div>
@@ -357,10 +437,10 @@ onMounted(async () => {
           </div>
 
           <div class="drawer-foot">
-            <textarea v-model="drawer.content" placeholder="说点什么…" :disabled="drawer.loading" />
-            <div class="row" style="justify-content: space-between; margin-top: 8px">
-              <button class="chip" type="button" :disabled="drawer.loading" @click="loadComments">刷新</button>
-              <button class="chip primary" type="button" :disabled="drawer.loading || !drawer.content.trim()" @click="publishComment">
+            <textarea ref="commentInput" v-model="drawer.content" placeholder="说点什么…" :disabled="drawer.loading" @keydown.esc.prevent="closeDrawer" />
+            <div class="drawer-actions">
+              <button class="comment-action" type="button" :disabled="drawer.loading" @click="loadComments">刷新</button>
+              <button class="comment-action primary" type="button" :disabled="drawer.loading || !drawer.content.trim()" @click="publishComment">
                 发送
               </button>
             </div>
@@ -376,17 +456,40 @@ onMounted(async () => {
   height: 100%;
   display: flex;
   flex-direction: column;
+  background:
+    radial-gradient(440px 440px at 76% 8%, rgba(37, 244, 238, 0.1), transparent 68%),
+    radial-gradient(520px 520px at 14% 88%, rgba(254, 44, 85, 0.11), transparent 70%);
 }
 
 .top {
-  height: 52px;
+  height: 58px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(0, 0, 0, 0.25);
-  backdrop-filter: blur(16px);
+  padding: 0 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(18px);
+}
+
+.top-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 13px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  box-shadow: none;
+}
+
+.top-chip:hover {
+  text-decoration: none;
 }
 
 .wrap {
@@ -394,7 +497,7 @@ onMounted(async () => {
   min-height: 0;
   display: grid;
   place-items: center;
-  padding: 18px 14px;
+  padding: 22px 18px;
 }
 
 .center-hint {
@@ -406,14 +509,25 @@ onMounted(async () => {
 }
 
 .stage {
-  width: min(980px, calc(100vw - 28px));
-  height: calc(100vh - 56px - 52px - 36px);
+  width: min(1040px, calc(100vw - 36px));
+  height: calc(100vh - 68px - 58px - 44px);
   position: relative;
-  border-radius: 18px;
+  border-radius: 30px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.16);
   background: rgba(0, 0, 0, 0.35);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 34px 120px rgba(0, 0, 0, 0.62), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+}
+
+.stage::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(140deg, rgba(255, 255, 255, 0.16), transparent 22%, transparent 70%, rgba(37, 244, 238, 0.12));
+  mix-blend-mode: screen;
 }
 
 .video {
@@ -428,14 +542,17 @@ onMounted(async () => {
 .grad {
   position: absolute;
   inset: 0;
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.68), rgba(0, 0, 0, 0.12) 40%, rgba(0, 0, 0, 0) 70%);
+  background:
+    linear-gradient(to top, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0.18) 42%, rgba(0, 0, 0, 0) 72%),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.46), transparent 42%, rgba(0, 0, 0, 0.32));
   pointer-events: none;
 }
 
 .meta {
   position: absolute;
-  left: 16px;
-  bottom: 18px;
+  z-index: 2;
+  left: 22px;
+  bottom: 24px;
   max-width: min(620px, calc(100% - 96px));
 }
 
@@ -455,39 +572,67 @@ onMounted(async () => {
 
 .author-name {
   text-shadow: 0 14px 30px rgba(0, 0, 0, 0.55);
+  font-weight: 900;
 }
 
 .title {
-  font-size: 16px;
-  font-weight: 700;
-  margin-bottom: 6px;
+  font-size: clamp(24px, 3.1vw, 48px);
+  line-height: 0.98;
+  font-weight: 950;
+  letter-spacing: -0.055em;
+  margin-bottom: 10px;
+  text-shadow: 0 18px 44px rgba(0, 0, 0, 0.58);
 }
 
 .desc {
   color: rgba(255, 255, 255, 0.74);
-  font-size: 13px;
-  line-height: 1.35;
+  font-size: 14px;
+  line-height: 1.45;
+  max-width: 58ch;
+}
+
+.asset-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(5, 6, 10, 0.34);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+  backdrop-filter: blur(14px);
+}
+
+.asset-link:hover {
+  color: rgba(255, 255, 255, 0.92);
+  text-decoration: none;
 }
 
 .actions {
   position: absolute;
-  right: 12px;
-  bottom: 18px;
+  z-index: 2;
+  right: 18px;
+  bottom: 24px;
   display: grid;
   gap: 12px;
 }
 
 .act {
-  width: 70px;
-  border-radius: 16px;
+  width: 74px;
+  border-radius: 22px;
   border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(0, 0, 0, 0.32);
+  background: rgba(5, 6, 10, 0.54);
+  backdrop-filter: blur(16px);
   color: rgba(255, 255, 255, 0.92);
-  padding: 10px 10px;
+  padding: 12px 10px;
   cursor: pointer;
   display: grid;
   gap: 6px;
   justify-items: center;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.32);
 }
 
 .act:hover {
@@ -497,6 +642,15 @@ onMounted(async () => {
 .act:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+.act-danger {
+  border-color: rgba(254, 44, 85, 0.42);
+  background: rgba(254, 44, 85, 0.12);
+}
+
+.act-danger:hover {
+  background: rgba(254, 44, 85, 0.18);
 }
 
 .icon {
@@ -517,11 +671,34 @@ onMounted(async () => {
 
 .hint {
   position: absolute;
-  left: 14px;
-  top: 14px;
+  z-index: 2;
+  left: 18px;
+  top: 18px;
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.hint-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(5, 6, 10, 0.34);
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+  backdrop-filter: blur(14px);
+}
+
+.hint-pill span {
+  color: rgba(37, 244, 238, 0.86);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
 }
 
 .chip {
@@ -531,10 +708,11 @@ onMounted(async () => {
   padding: 7px 10px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(0, 0, 0, 0.28);
+  background: rgba(0, 0, 0, 0.34);
   color: rgba(255, 255, 255, 0.86);
   font-size: 12px;
   text-decoration: none;
+  backdrop-filter: blur(14px);
 }
 
 .chip.primary {
@@ -587,8 +765,28 @@ onMounted(async () => {
   background: rgba(255, 255, 255, 0.06);
   color: rgba(255, 255, 255, 0.9);
   cursor: pointer;
+  display: grid;
+  place-items: center;
+  font-size: 0;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    transform 0.18s ease;
+}
+
+.drawer-x::before {
+  content: '×';
+  font-family: 'Avenir Next', 'PingFang SC', 'Microsoft YaHei UI', sans-serif;
   font-size: 20px;
+  font-weight: 700;
   line-height: 1;
+  transform: translateY(-1px);
+}
+
+.drawer-x:hover {
+  transform: translateY(-1px);
+  border-color: rgba(37, 244, 238, 0.42);
+  background: rgba(255, 255, 255, 0.11);
 }
 
 .drawer-body {
@@ -601,18 +799,44 @@ onMounted(async () => {
 .drawer-foot {
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   padding: 12px 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015)),
+    rgba(0, 0, 0, 0.24);
 }
 
 .drawer-foot textarea {
   width: 100%;
   min-height: 82px;
   resize: none;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.9);
-  padding: 10px 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  background: rgba(255, 255, 255, 0.075);
+  color: rgba(255, 255, 255, 0.92);
+  padding: 12px 13px;
   outline: none;
+  font: inherit;
+  line-height: 1.55;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.drawer-foot textarea:focus {
+  border-color: rgba(37, 244, 238, 0.46);
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 0 0 3px rgba(37, 244, 238, 0.1);
+}
+
+.drawer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
 }
 
 .drawer-hint {
@@ -625,10 +849,13 @@ onMounted(async () => {
 }
 
 .comment {
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 14px;
-  padding: 10px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.105);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.035)),
+    rgba(255, 255, 255, 0.03);
+  border-radius: 18px;
+  padding: 12px 12px;
+  box-shadow: 0 14px 26px rgba(0, 0, 0, 0.18);
 }
 
 .comment-top {
@@ -638,19 +865,22 @@ onMounted(async () => {
 
 .comment-user {
   font-weight: 700;
-  font-size: 13px;
+  font-size: 13.5px;
+  letter-spacing: 0.01em;
 }
 
 .comment-meta {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.55);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.46);
 }
 
 .comment-content {
   margin-top: 8px;
-  font-size: 13px;
-  line-height: 1.35;
-  color: rgba(255, 255, 255, 0.86);
+  font-size: 14px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.9);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -661,14 +891,52 @@ onMounted(async () => {
   justify-content: flex-end;
 }
 
-.mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+.comment-action {
+  min-height: 34px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.075);
+  color: rgba(255, 255, 255, 0.82);
+  padding: 0 14px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+
+.comment-action:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(37, 244, 238, 0.4);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.comment-action.primary {
+  border-color: rgba(37, 244, 238, 0.38);
+  background: linear-gradient(135deg, rgba(37, 244, 238, 0.22), rgba(254, 44, 85, 0.16));
+  color: #fff;
+}
+
+.comment-action.danger {
+  border-color: rgba(254, 44, 85, 0.42);
+  background: rgba(254, 44, 85, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.comment-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 
 @media (max-width: 900px) {
   .stage {
     width: calc(100vw - 28px);
-    height: calc(100vh - 56px - 52px - 36px);
+    height: calc(100vh - 68px - 58px - 36px);
+    border-radius: 24px;
   }
   .drawer-backdrop {
     justify-items: center;

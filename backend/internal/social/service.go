@@ -1,93 +1,70 @@
 package social
 
 import (
+	"backend/internal/account"
 	"context"
 	"errors"
-	"feedsystem_video_go/internal/account"
-	"feedsystem_video_go/internal/middleware/rabbitmq"
 )
 
-type SocialService struct {
-	repo        *SocialRepository
-	accountrepo *account.AccountRepository
-	socialMQ    *rabbitmq.SocialMQ
+type Service struct {
+	repo *Repository
 }
 
-func NewSocialService(repo *SocialRepository, accountrepo *account.AccountRepository, socialMQ *rabbitmq.SocialMQ) *SocialService {
-	return &SocialService{repo: repo, accountrepo: accountrepo, socialMQ: socialMQ}
+func NewService(repo *Repository) *Service {
+	return &Service{repo: repo}
 }
 
-func (s *SocialService) Follow(ctx context.Context, social *Social) error {
-	_, err := s.accountrepo.FindByID(ctx, social.FollowerID)
+func (s *Service) Follow(ctx context.Context, followerID, vloggerID uint) error {
+	if followerID == 0 || vloggerID == 0 {
+		return errors.New("follower_id and vlogger_id are required")
+	}
+	if followerID == vloggerID {
+		return errors.New("cannot follow yourself")
+	}
+
+	following, err := s.repo.IsFollowing(ctx, followerID, vloggerID)
 	if err != nil {
 		return err
 	}
-	_, err = s.accountrepo.FindByID(ctx, social.VloggerID)
-	if err != nil {
-		return err
+	if following {
+		return nil
 	}
-	if social.FollowerID == social.VloggerID {
-		return errors.New("can not follow self")
-	}
-	isFollowed, err := s.repo.IsFollowed(ctx, social)
-	if err != nil {
-		return err
-	}
-	if isFollowed {
-		return errors.New("already followed")
-	}
-	if s.socialMQ != nil {
-		s.socialMQ.Follow(ctx, social.FollowerID, social.VloggerID)
-	}
-	return s.repo.Follow(ctx, social)
+
+	return s.repo.Follow(ctx, &Social{
+		FollowerID: followerID,
+		VloggerID:  vloggerID,
+	})
 }
 
-func (s *SocialService) Unfollow(ctx context.Context, social *Social) error {
-	_, err := s.accountrepo.FindByID(ctx, social.FollowerID)
+func (s *Service) Unfollow(ctx context.Context, followerID, vloggerID uint) error {
+	if followerID == 0 || vloggerID == 0 {
+		return errors.New("follower_id and vlogger_id are required")
+	}
+	if followerID == vloggerID {
+		return errors.New("cannot unfollow yourself")
+	}
+
+	following, err := s.repo.IsFollowing(ctx, followerID, vloggerID)
 	if err != nil {
 		return err
 	}
-	_, err = s.accountrepo.FindByID(ctx, social.VloggerID)
-	if err != nil {
-		return err
+	if !following {
+		return nil
 	}
-	isFollowed, err := s.repo.IsFollowed(ctx, social)
-	if err != nil {
-		return err
-	}
-	if !isFollowed {
-		return errors.New("not followed")
-	}
-	if s.socialMQ != nil {
-		s.socialMQ.UnFollow(ctx, social.FollowerID, social.VloggerID)
-	}
-	return s.repo.Unfollow(ctx, social)
+
+	return s.repo.Unfollow(ctx, followerID, vloggerID)
 }
 
-func (s *SocialService) GetAllFollowers(ctx context.Context, VloggerID uint) ([]*account.Account, error) {
-	_, err := s.accountrepo.FindByID(ctx, VloggerID)
-	if err != nil {
-		return nil, err
+func (s *Service) ListFollowers(ctx context.Context, vloggerID uint) ([]account.Account, error) {
+	if vloggerID == 0 {
+		return nil, errors.New("vlogger_id is required")
 	}
-	return s.repo.GetAllFollowers(ctx, VloggerID)
+	return s.repo.ListFollowers(ctx, vloggerID)
 }
 
-func (s *SocialService) GetAllVloggers(ctx context.Context, FollowerID uint) ([]*account.Account, error) {
-	_, err := s.accountrepo.FindByID(ctx, FollowerID)
-	if err != nil {
-		return nil, err
+func (s *Service) ListFollowing(ctx context.Context, followerID uint) ([]account.Account, error) {
+	if followerID == 0 {
+		return nil, errors.New("follower_id is required")
 	}
-	return s.repo.GetAllVloggers(ctx, FollowerID)
-}
-
-func (s *SocialService) IsFollowed(ctx context.Context, social *Social) (bool, error) {
-	_, err := s.accountrepo.FindByID(ctx, social.FollowerID)
-	if err != nil {
-		return false, err
-	}
-	_, err = s.accountrepo.FindByID(ctx, social.VloggerID)
-	if err != nil {
-		return false, err
-	}
-	return s.repo.IsFollowed(ctx, social)
+	return s.repo.ListFollowing(ctx, followerID)
 }

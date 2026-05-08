@@ -54,14 +54,22 @@ async function goSettings() {
 <template>
   <div class="dy-shell">
     <aside class="dy-aside">
-      <RouterLink class="dy-logo" to="/">ShortVideo</RouterLink>
+      <RouterLink class="dy-logo" to="/">
+        <span class="dy-logo-mark">SV</span>
+        <span>
+          <span class="dy-logo-main">ShortVideo</span>
+          <span class="dy-logo-sub">Feed Studio</span>
+        </span>
+      </RouterLink>
 
       <nav class="dy-nav">
-        <RouterLink class="dy-nav-link" to="/">推荐</RouterLink>
-        <RouterLink class="dy-nav-link" to="/hot">热榜</RouterLink>
-        <RouterLink class="dy-nav-link" to="/video">发布</RouterLink>
-        <RouterLink class="dy-nav-link" to="/account">账号</RouterLink>
-        <RouterLink class="dy-nav-link" to="/settings">设置</RouterLink>
+        <div class="dy-nav-caption">Browse</div>
+        <RouterLink class="dy-nav-link" to="/"><span>推荐</span><small>For You</small></RouterLink>
+        <RouterLink class="dy-nav-link" to="/hot"><span>热榜</span><small>Hot Rank</small></RouterLink>
+        <div class="dy-nav-caption">Create</div>
+        <RouterLink class="dy-nav-link" to="/video"><span>发布</span><small>Upload</small></RouterLink>
+        <RouterLink class="dy-nav-link" to="/account"><span>账号</span><small>Profile</small></RouterLink>
+        <RouterLink class="dy-nav-link" to="/settings"><span>设置</span><small>Safety</small></RouterLink>
       </nav>
 
       <div class="dy-aside-foot">
@@ -80,6 +88,7 @@ async function goSettings() {
       <header class="dy-topbar">
         <div class="dy-top-left">
           <div class="dy-tabs-hint">{{ route.name }}</div>
+          <div class="dy-top-title">发现短视频</div>
         </div>
 
         <div class="dy-search">
@@ -112,46 +121,124 @@ async function goSettings() {
 .dy-shell {
   height: 100vh;
   display: grid;
-  grid-template-columns: 240px 1fr;
-  background: radial-gradient(1200px 900px at 20% -25%, rgba(254, 44, 85, 0.18), transparent 60%),
-    radial-gradient(900px 700px at 90% 10%, rgba(37, 244, 238, 0.12), transparent 55%), transparent;
+  grid-template-columns: 268px 1fr;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03), transparent 18%),
+    transparent;
 }
 
 .dy-aside {
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(16px);
-  padding: 14px 12px;
+  position: relative;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  background:
+    radial-gradient(260px 260px at 20% 10%, rgba(254, 44, 85, 0.18), transparent 62%),
+    rgba(4, 5, 10, 0.72);
+  backdrop-filter: blur(22px) saturate(140%);
+  padding: 18px 14px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 18px;
+  box-shadow: 20px 0 80px rgba(0, 0, 0, 0.28);
 }
 
 .dy-logo {
-  font-weight: 900;
-  letter-spacing: 0.4px;
-  font-size: 18px;
-  padding: 10px 10px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.06);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 20px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.045)),
+    rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.1);
+  text-decoration: none;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.26);
+}
+
+.dy-logo:hover {
+  text-decoration: none;
+}
+
+.dy-logo-mark {
+  width: 42px;
+  height: 42px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  font-weight: 950;
+  letter-spacing: -0.05em;
+  background: linear-gradient(135deg, #fe2c55, #ff8a3d 58%, #25f4ee);
+  color: white;
+  box-shadow: 0 16px 36px rgba(254, 44, 85, 0.28);
+}
+
+.dy-logo-main,
+.dy-logo-sub {
+  display: block;
+}
+
+.dy-logo-main {
+  font-weight: 950;
+  letter-spacing: 0.02em;
+  font-size: 17px;
+}
+
+.dy-logo-sub {
+  margin-top: 1px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
 }
 
 .dy-nav {
   display: grid;
-  gap: 8px;
+  gap: 9px;
+}
+
+.dy-nav-caption {
+  margin: 10px 8px 2px;
+  color: rgba(255, 255, 255, 0.38);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
 }
 
 .dy-nav-link {
-  padding: 10px 10px;
-  border-radius: 12px;
+  display: grid;
+  gap: 2px;
+  padding: 12px 13px;
+  border-radius: 16px;
   border: 1px solid transparent;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.035);
+  text-decoration: none;
+  transition: transform 140ms ease, background 140ms ease, border-color 140ms ease;
+}
+
+.dy-nav-link:hover {
+  transform: translateX(3px);
+  text-decoration: none;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.dy-nav-link span {
+  font-weight: 850;
+}
+
+.dy-nav-link small {
+  color: rgba(255, 255, 255, 0.48);
+  font-size: 11px;
+  letter-spacing: 0.04em;
 }
 
 .dy-nav-link.router-link-active {
-  border-color: rgba(254, 44, 85, 0.42);
-  background: rgba(254, 44, 85, 0.12);
+  border-color: rgba(254, 44, 85, 0.5);
+  background:
+    linear-gradient(135deg, rgba(254, 44, 85, 0.22), rgba(37, 244, 238, 0.08)),
+    rgba(255, 255, 255, 0.06);
+  box-shadow: inset 3px 0 0 rgba(254, 44, 85, 0.92), 0 16px 42px rgba(0, 0, 0, 0.2);
 }
 
 .dy-aside-foot {
@@ -159,7 +246,7 @@ async function goSettings() {
   display: grid;
   gap: 10px;
   padding-top: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .dy-user {
@@ -204,7 +291,7 @@ async function goSettings() {
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.06);
   color: rgba(255, 255, 255, 0.9);
-  border-radius: 12px;
+  border-radius: 15px;
   padding: 10px 12px;
   cursor: pointer;
   text-decoration: none;
@@ -221,11 +308,12 @@ async function goSettings() {
 
 .dy-btn-primary {
   border-color: rgba(254, 44, 85, 0.5);
-  background: rgba(254, 44, 85, 0.16);
+  background: linear-gradient(135deg, rgba(254, 44, 85, 0.88), rgba(255, 138, 61, 0.7));
+  box-shadow: 0 16px 38px rgba(254, 44, 85, 0.18);
 }
 
 .dy-btn-primary:hover {
-  background: rgba(254, 44, 85, 0.24);
+  background: linear-gradient(135deg, rgba(255, 70, 104, 0.96), rgba(255, 151, 80, 0.78));
 }
 
 .dy-btn-ghost {
@@ -241,22 +329,30 @@ async function goSettings() {
 }
 
 .dy-topbar {
-  height: 56px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(0, 0, 0, 0.28);
-  backdrop-filter: blur(16px);
+  height: 68px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(6, 7, 12, 0.54);
+  backdrop-filter: blur(20px) saturate(140%);
   display: grid;
-  grid-template-columns: 180px 1fr 180px;
-  gap: 12px;
+  grid-template-columns: 220px 1fr 190px;
+  gap: 16px;
   align-items: center;
-  padding: 0 14px;
+  padding: 0 18px;
+  box-shadow: 0 16px 55px rgba(0, 0, 0, 0.22);
 }
 
 .dy-tabs-hint {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.55);
+  color: rgba(37, 244, 238, 0.72);
   text-transform: uppercase;
   letter-spacing: 0.16em;
+  font-weight: 900;
+}
+
+.dy-top-title {
+  margin-top: 1px;
+  font-size: 15px;
+  font-weight: 900;
 }
 
 .dy-search {
@@ -271,12 +367,13 @@ async function goSettings() {
 
 .dy-search-input {
   width: 100%;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 999px;
   color: rgba(255, 255, 255, 0.9);
-  padding: 10px 14px;
+  padding: 12px 16px;
   outline: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .dy-search-input:focus {

@@ -1,11 +1,3 @@
-#
-# Multi-stage build for backend API and worker.
-#
-# Build:
-#   docker build -f backend/Dockerfile -t feedsystem-backend:api --target api .
-#   docker build -f backend/Dockerfile -t feedsystem-backend:worker --target worker .
-#
-
 ARG GO_VERSION=1.24.5
 
 FROM golang:${GO_VERSION} AS build
@@ -35,4 +27,3 @@ ENTRYPOINT ["/app/api"]
 FROM base AS worker
 COPY --from=build /out/worker /app/worker
 ENTRYPOINT ["/app/worker"]
-

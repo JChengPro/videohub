@@ -32,3 +32,12 @@ go.work.sum
 .idea/
 .vscode/
 
+# Local codex/workspace artifacts
+.codex
+.codex/
+
+# Renamed backup of the old backend, kept out of the main GitHub repo
+backend_bak/
+
+# Study compose file is local-only
+docker-compose.study.yml

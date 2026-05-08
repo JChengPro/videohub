@@ -1,0 +1,12 @@
+.git
+.codex
+backend_bak
+**/.run
+**/node_modules
+**/dist
+**/*.log
+**/*.test
+*.out
+coverage.*
+profile.cov
+bin

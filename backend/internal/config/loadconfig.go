@@ -1,18 +1,19 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
-	"errors"
+
 	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
-	Server   ServerConfig   `yaml:"server"`
-	Database DatabaseConfig `yaml:"database"`
-	Redis    RedisConfig    `yaml:"redis"`
-	RabbitMQ RabbitMQConfig `yaml:"rabbitmq"`
-	ObservabilityConfig ObservabilityConfig `yaml:"observability"`
+	Server        ServerConfig        `yaml:"server"`
+	Database      DatabaseConfig      `yaml:"database"`
+	Redis         RedisConfig         `yaml:"redis"`
+	RabbitMQ      RabbitMQConfig      `yaml:"rabbitmq"`
+	Observability ObservabilityConfig `yaml:"observability"`
 }
 
 type ServerConfig struct {
@@ -44,11 +45,15 @@ type RabbitMQConfig struct {
 type ObservabilityConfig struct {
 	Pprof PprofConfig `yaml:"pprof"`
 }
+
 type PprofConfig struct {
-	Enabled bool `yaml:"enabled"`
-	ApiAddr string `yaml:"api_addr"`
+	Enabled    bool   `yaml:"enabled"`
+	APIAddr    string `yaml:"api_addr"`
 	WorkerAddr string `yaml:"worker_addr"`
 }
+
+// 读取 yaml 文件
+// 反序列化成 Config 结构体
 func Load(filename string) (Config, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
@@ -63,15 +68,19 @@ func Load(filename string) (Config, error) {
 	return cfg, nil
 }
 
-// bool用来表示是否使用了默认配置，true表示使用了默认配置
+// bool 表示是否使用了默认配置
+// true  -> 使用了默认配置
+// false -> 成功读取了配置文件
 func LoadLocalDev(filename string) (Config, bool, error) {
 	cfg, err := Load(filename)
 	if err == nil {
 		return cfg, false, nil
 	}
+
 	if errors.Is(err, os.ErrNotExist) {
 		return DefaultLocalConfig(), true, nil
 	}
+
 	return Config{}, false, err
 }
 
@@ -81,29 +90,29 @@ func DefaultLocalConfig() Config {
 			Port: 8080,
 		},
 		Database: DatabaseConfig{
-			Host:     "localhost",
-			Port:     3306,
-			User:	 "root",
+			Host:     "127.0.0.1",
+			Port:     3307,
+			User:     "root",
 			Password: "123456",
 			DBName:   "feedsystem",
 		},
 		Redis: RedisConfig{
-			Host:     "localhost",
+			Host:     "127.0.0.1",
 			Port:     6379,
 			Password: "123456",
 			DB:       0,
 		},
 		RabbitMQ: RabbitMQConfig{
-			Host:     "localhost",
+			Host:     "127.0.0.1",
 			Port:     5672,
 			Username: "admin",
 			Password: "password123",
 		},
-		ObservabilityConfig: ObservabilityConfig{
+		Observability: ObservabilityConfig{
 			Pprof: PprofConfig{
-				Enabled: true,
-				ApiAddr: "localhost:6060",
-				WorkerAddr: "localhost:6061",
+				Enabled:    true,
+				APIAddr:    "127.0.0.1:6060",
+				WorkerAddr: "127.0.0.1:6061",
 			},
 		},
 	}

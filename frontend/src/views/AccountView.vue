@@ -31,6 +31,7 @@ const myVideos = reactive({
   error: '',
   items: [] as Video[],
 })
+const deletingVideoId = ref<number | null>(null)
 
 type VideoTab = 'works' | 'likes'
 const videoTab = ref<VideoTab>('works')
@@ -101,6 +102,24 @@ async function loadLikedVideos() {
 
 async function goVideo(id: number) {
   await router.push(`/video/${id}`)
+}
+
+async function deleteMyVideo(videoId: number) {
+  if (deletingVideoId.value === videoId) return
+  if (!window.confirm('确认删除这个视频？相关点赞和评论也会一起删除。')) return
+
+  deletingVideoId.value = videoId
+  try {
+    await videoApi.deleteVideo(videoId)
+    myVideos.items = myVideos.items.filter((item) => item.id !== videoId)
+    likedVideos.items = likedVideos.items.filter((item) => item.id !== videoId)
+    toast.info('视频已删除')
+  } catch (e) {
+    const msg = e instanceof ApiError ? e.message : String(e)
+    toast.error(msg)
+  } finally {
+    deletingVideoId.value = null
+  }
 }
 
 function openWorksVideos() {
@@ -286,13 +305,23 @@ watch(
           <div v-else-if="myVideos.items.length === 0" class="hint" style="margin-top: 12px">暂无作品</div>
 
           <div v-else class="video-grid" style="margin-top: 12px">
-            <button v-for="v in myVideos.items" :key="v.id" class="video-card" type="button" @click="goVideo(v.id)">
-              <img class="video-cover" :src="v.cover_url" :alt="v.title" loading="lazy" />
-              <div class="video-meta">
-                <div class="video-title">{{ v.title }}</div>
-                <div class="video-sub subtle">❤️ {{ v.likes_count }} · {{ new Date(v.create_time).toLocaleDateString() }}</div>
-              </div>
-            </button>
+            <div v-for="v in myVideos.items" :key="v.id" class="video-tile">
+              <button class="video-card manageable" type="button" @click="goVideo(v.id)">
+                <img class="video-cover" :src="v.cover_url" :alt="v.title" loading="lazy" />
+                <div class="video-meta">
+                  <div class="video-title">{{ v.title }}</div>
+                  <div class="video-sub subtle">❤️ {{ v.likes_count }} · {{ new Date(v.create_time).toLocaleDateString() }}</div>
+                </div>
+              </button>
+              <button
+                class="video-delete"
+                type="button"
+                :disabled="deletingVideoId === v.id"
+                @click.stop="deleteMyVideo(v.id)"
+              >
+                {{ deletingVideoId === v.id ? '删除中…' : '删除' }}
+              </button>
+            </div>
           </div>
         </template>
         <template v-else>
@@ -317,7 +346,7 @@ watch(
       <div class="drawer">
         <div class="drawer-head">
           <div class="drawer-title">{{ listTitle }}</div>
-          <button class="drawer-x" type="button" @click="closeDrawer">×</button>
+          <button class="drawer-x" type="button" aria-label="关闭列表" @click="closeDrawer">×</button>
         </div>
         <div class="drawer-body">
           <div v-if="drawerLoading" class="drawer-hint">加载中…</div>
@@ -454,8 +483,28 @@ watch(
   background: rgba(255, 255, 255, 0.06);
   color: rgba(255, 255, 255, 0.9);
   cursor: pointer;
+  display: grid;
+  place-items: center;
+  font-size: 0;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    transform 0.18s ease;
+}
+
+.drawer-x::before {
+  content: '×';
+  font-family: 'Avenir Next', 'PingFang SC', 'Microsoft YaHei UI', sans-serif;
   font-size: 20px;
+  font-weight: 700;
   line-height: 1;
+  transform: translateY(-1px);
+}
+
+.drawer-x:hover {
+  transform: translateY(-1px);
+  border-color: rgba(37, 244, 238, 0.42);
+  background: rgba(255, 255, 255, 0.11);
 }
 
 .drawer-body {
@@ -502,8 +551,38 @@ watch(
   text-align: left;
 }
 
+.video-card.manageable {
+  width: 100%;
+}
+
 .video-card:hover {
   background: rgba(255, 255, 255, 0.08);
+}
+
+.video-tile {
+  position: relative;
+}
+
+.video-delete {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  border: 1px solid rgba(254, 44, 85, 0.45);
+  background: rgba(0, 0, 0, 0.62);
+  color: rgba(255, 255, 255, 0.92);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.video-delete:hover {
+  background: rgba(254, 44, 85, 0.18);
+}
+
+.video-delete:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .video-cover {

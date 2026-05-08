@@ -1,110 +1,96 @@
 package video
 
 import (
-	"feedsystem_video_go/internal/middleware/jwt"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
 
 type LikeHandler struct {
-	service *LikeService
+	Service *LikeService
 }
 
 func NewLikeHandler(service *LikeService) *LikeHandler {
-	return &LikeHandler{service: service}
+	return &LikeHandler{Service: service}
 }
 
-func (lh *LikeHandler) Like(c *gin.Context) {
+func currentAccountID(c *gin.Context) (uint, bool) {
+	value, ok := c.Get("accountID")
+	if !ok {
+		return 0, false
+	}
+	accountID, ok := value.(uint)
+	if !ok {
+		return 0, false
+	}
+	return accountID, true
+}
+
+func (h *LikeHandler) Like(c *gin.Context) {
 	var req LikeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if req.VideoID <= 0 {
-		c.JSON(400, gin.H{"error": "video_id is required"})
+	accountID, ok := currentAccountID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid accountID"})
 		return
 	}
-
-	accountID, err := jwt.GetAccountID(c)
-	if err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+	if err := h.Service.Like(c.Request.Context(), req.VideoID, accountID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
-	like := &Like{
-		VideoID:   req.VideoID,
-		AccountID: accountID,
-	}
-	if err := lh.service.Like(c.Request.Context(), like); err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(200, gin.H{"message": "like success"})
+	c.JSON(http.StatusOK, gin.H{"message": "liked"})
 }
 
-func (lh *LikeHandler) Unlike(c *gin.Context) {
+func (h *LikeHandler) UnLike(c *gin.Context) {
 	var req LikeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if req.VideoID <= 0 {
-		c.JSON(400, gin.H{"error": "video_id is required"})
+	accountID, ok := currentAccountID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid accountID"})
 		return
 	}
-
-	accountID, err := jwt.GetAccountID(c)
-	if err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+	if err := h.Service.Unlike(c.Request.Context(), req.VideoID, accountID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
-	like := &Like{
-		VideoID:   req.VideoID,
-		AccountID: accountID,
-	}
-	if err := lh.service.Unlike(c.Request.Context(), like); err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(200, gin.H{"message": "unlike success"})
+	c.JSON(http.StatusOK, gin.H{"message": "unliked"})
 }
 
-func (lh *LikeHandler) IsLiked(c *gin.Context) {
+func (h *LikeHandler) IsLiked(c *gin.Context) {
 	var req LikeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if req.VideoID <= 0 {
-		c.JSON(400, gin.H{"error": "video_id is required"})
+	accountID, ok := currentAccountID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid accountID"})
 		return
 	}
-
-	accountID, err := jwt.GetAccountID(c)
+	isLiked, err := h.Service.IsLiked(c.Request.Context(), req.VideoID, accountID)
 	if err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	isLiked, err := lh.service.IsLiked(c.Request.Context(), req.VideoID, accountID)
-	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(200, gin.H{"is_liked": isLiked})
+	c.JSON(http.StatusOK, IsLikedResponse{IsLiked: isLiked})
 }
 
-func (lh *LikeHandler) ListMyLikedVideos(c *gin.Context) {
-	accountID, err := jwt.GetAccountID(c)
-	if err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+func (h *LikeHandler) ListMyLikedVideos(c *gin.Context) {
+	accountID, ok := currentAccountID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid accountID"})
 		return
 	}
-
-	videos, err := lh.service.ListLikedVideos(c.Request.Context(), accountID)
+	videos, err := h.Service.ListLikedVideos(c.Request.Context(), accountID)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(200, videos)
+	c.JSON(http.StatusOK, videos)
 }

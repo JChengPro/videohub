@@ -16,6 +16,8 @@ const toast = useToastStore()
 const busy = ref(false)
 const stage = ref('')
 const published = ref<Video | null>(null)
+const maxVideoBytes = 200 * 1024 * 1024
+const maxCoverBytes = 10 * 1024 * 1024
 
 const videoInput = ref<HTMLInputElement | null>(null)
 const coverInput = ref<HTMLInputElement | null>(null)
@@ -31,6 +33,10 @@ const preview = reactive({
   videoUrl: '',
   coverUrl: '',
 })
+
+function formatMiB(bytes: number) {
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
 
 function setPreviewVideo(file: File | null) {
   if (preview.videoUrl) URL.revokeObjectURL(preview.videoUrl)
@@ -59,12 +65,26 @@ onUnmounted(() => {
 
 function pickVideo(e: Event) {
   const input = e.target as HTMLInputElement
-  publishForm.video = input.files?.[0] ?? null
+  const file = input.files?.[0] ?? null
+  if (file && file.size > maxVideoBytes) {
+    toast.error(`视频文件过大：${formatMiB(file.size)}，最大支持 ${formatMiB(maxVideoBytes)}`)
+    input.value = ''
+    publishForm.video = null
+    return
+  }
+  publishForm.video = file
 }
 
 function pickCover(e: Event) {
   const input = e.target as HTMLInputElement
-  publishForm.cover = input.files?.[0] ?? null
+  const file = input.files?.[0] ?? null
+  if (file && file.size > maxCoverBytes) {
+    toast.error(`封面文件过大：${formatMiB(file.size)}，最大支持 ${formatMiB(maxCoverBytes)}`)
+    input.value = ''
+    publishForm.cover = null
+    return
+  }
+  publishForm.cover = file
 }
 
 function openVideoPicker() {
@@ -103,8 +123,16 @@ async function onPublish() {
     toast.error('请选择视频文件（.mp4）')
     return
   }
+  if (publishForm.video.size > maxVideoBytes) {
+    toast.error(`视频文件过大：${formatMiB(publishForm.video.size)}，最大支持 ${formatMiB(maxVideoBytes)}`)
+    return
+  }
   if (!publishForm.cover) {
     toast.error('请选择封面图片（jpg/png/webp）')
+    return
+  }
+  if (publishForm.cover.size > maxCoverBytes) {
+    toast.error(`封面文件过大：${formatMiB(publishForm.cover.size)}，最大支持 ${formatMiB(maxCoverBytes)}`)
     return
   }
 
@@ -176,7 +204,7 @@ async function onPublish() {
                 <button v-if="publishForm.video" type="button" :disabled="busy" @click="clearVideo">清除</button>
               </div>
               <div v-if="publishForm.video" class="subtle" style="margin-top: 6px">
-                已选择：{{ publishForm.video.name }}（{{ Math.ceil(publishForm.video.size / 1024 / 1024) }} MB）
+                已选择：{{ publishForm.video.name }}（{{ formatMiB(publishForm.video.size) }} / 最大 200MB）
               </div>
             </div>
             <div>
@@ -196,7 +224,9 @@ async function onPublish() {
                 </div>
                 <button v-if="publishForm.cover" type="button" :disabled="busy" @click="clearCover">清除</button>
               </div>
-              <div v-if="publishForm.cover" class="subtle" style="margin-top: 6px">已选择：{{ publishForm.cover.name }}</div>
+              <div v-if="publishForm.cover" class="subtle" style="margin-top: 6px">
+                已选择：{{ publishForm.cover.name }}（{{ formatMiB(publishForm.cover.size) }} / 最大 10MB）
+              </div>
             </div>
           </div>
 
@@ -225,8 +255,8 @@ async function onPublish() {
             </div>
             <div class="row">
               <RouterLink class="pill" :to="`/video/${published.id}`">去播放</RouterLink>
-              <a class="pill mono" :href="published.play_url" target="_blank" rel="noreferrer">play_url</a>
-              <a class="pill mono" :href="published.cover_url" target="_blank" rel="noreferrer">cover_url</a>
+              <a class="pill" :href="published.play_url" target="_blank" rel="noreferrer">播放地址</a>
+              <a class="pill" :href="published.cover_url" target="_blank" rel="noreferrer">封面地址</a>
             </div>
           </div>
         </div>

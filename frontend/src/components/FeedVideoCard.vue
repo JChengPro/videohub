@@ -32,7 +32,7 @@ function onToggle() {
           </div>
         </div>
         <div class="row">
-          <span class="pill mono">❤️ {{ item.likes_count }}</span>
+          <span class="pill">❤️ {{ item.likes_count }}</span>
           <button
             v-if="canLike"
             class="primary"
@@ -47,7 +47,7 @@ function onToggle() {
       </div>
       <div v-if="item.description" class="muted" style="margin-top: 8px">{{ item.description }}</div>
       <div class="row" style="margin-top: 10px">
-        <a class="pill mono" :href="item.play_url" target="_blank" rel="noreferrer">播放地址</a>
+        <a class="pill" :href="item.play_url" target="_blank" rel="noreferrer">播放地址</a>
         <RouterLink class="pill" :to="`/video/${item.id}`">查看详情 / 评论</RouterLink>
       </div>
     </div>
@@ -57,17 +57,36 @@ function onToggle() {
 <style scoped>
 .feed-card {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
-  gap: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.06);
-  border-radius: 16px;
+  grid-template-columns: 230px minmax(0, 1fr);
+  gap: 0;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.045)),
+    rgba(255, 255, 255, 0.06);
+  border-radius: 22px;
   overflow: hidden;
+  box-shadow: 0 20px 58px rgba(0, 0, 0, 0.26);
+  transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.feed-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(37, 244, 238, 0.24);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.34);
 }
 
 .cover {
   background: rgba(0, 0, 0, 0.25);
-  aspect-ratio: 16/9;
+  aspect-ratio: 10/13;
+  position: relative;
+  overflow: hidden;
+}
+
+.cover::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.32), transparent 56%);
 }
 
 .cover img {
@@ -78,7 +97,8 @@ function onToggle() {
 }
 
 .content {
-  padding: 12px 12px 14px;
+  padding: 16px 16px 18px;
+  min-width: 0;
 }
 
 @media (max-width: 900px) {

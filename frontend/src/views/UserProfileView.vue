@@ -219,7 +219,7 @@ onMounted(loadProfile)
       <div class="drawer">
         <div class="drawer-head">
           <div class="drawer-title">{{ listTitle }}</div>
-          <button class="drawer-x" type="button" @click="closeDrawer">×</button>
+          <button class="drawer-x" type="button" aria-label="关闭列表" @click="closeDrawer">×</button>
         </div>
         <div class="drawer-body">
           <div v-if="state.socialLoading" class="drawer-hint">加载中…</div>
@@ -398,8 +398,28 @@ onMounted(loadProfile)
   background: rgba(255, 255, 255, 0.06);
   color: rgba(255, 255, 255, 0.9);
   cursor: pointer;
+  display: grid;
+  place-items: center;
+  font-size: 0;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    transform 0.18s ease;
+}
+
+.drawer-x::before {
+  content: '×';
+  font-family: 'Avenir Next', 'PingFang SC', 'Microsoft YaHei UI', sans-serif;
   font-size: 20px;
+  font-weight: 700;
   line-height: 1;
+  transform: translateY(-1px);
+}
+
+.drawer-x:hover {
+  transform: translateY(-1px);
+  border-color: rgba(37, 244, 238, 0.42);
+  background: rgba(255, 255, 255, 0.11);
 }
 
 .drawer-body {
@@ -452,4 +472,3 @@ onMounted(loadProfile)
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
 }
 </style>
-

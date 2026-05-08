@@ -1,291 +1,232 @@
 package main
 
 import (
+	"backend/internal/cache"
+	"backend/internal/config"
+	"backend/internal/db"
+	"backend/internal/mq"
+	"backend/internal/observability"
+	"backend/internal/video"
+	"backend/internal/worker"
 	"context"
-	"feedsystem_video_go/internal/config"
-	"feedsystem_video_go/internal/db"
-	rediscache "feedsystem_video_go/internal/middleware/redis"
-	"feedsystem_video_go/internal/observability"
-	"feedsystem_video_go/internal/social"
-	"feedsystem_video_go/internal/video"
-	"feedsystem_video_go/internal/worker"
+	"encoding/json"
 	"log"
-	
-	"os"
-	"os/signal"
-	"strconv"
-	"syscall"
-	"time"
-
-	amqp "github.com/rabbitmq/amqp091-go"
-)
-
-const (
-	socialExchange   = "social.events"
-	socialQueue      = "social.events"
-	socialBindingKey = "social.*"
-
-	likeExchange   = "like.events"
-	likeQueue      = "like.events"
-	likeBindingKey = "like.*"
-
-	commentExchange   = "comment.events"
-	commentQueue      = "comment.events"
-	commentBindingKey = "comment.*"
-
-	popularityExchange   = "video.popularity.events"
-	popularityQueue      = "video.popularity.events"
-	popularityBindingKey = "video.popularity.*"
 )
 
 func main() {
-	// 加载配置
-	const configPath = "configs/config.yaml"
-	log.Printf("Loading config from %s", configPath)
-	cfg, usedDefault, err := config.LoadLocalDev(configPath)
+	cfg, usedDefault, err := config.LoadLocalDev("configs/config.yaml")
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		log.Fatalf("load config failed: %v", err)
 	}
-	if usedDefault {
-		log.Printf("Config File %s not found, using default local config", configPath)
-	} else {
-		log.Printf("Config loaded from file: %s", configPath)
-	}
-	// 连接数据库
-	sqlDB, err := db.NewDB(cfg.Database)
-	if err != nil {
-		log.Fatalf("Failed to connect database: %v", err)
-	}
-	defer db.CloseDB(sqlDB)
+	log.Printf("worker config loaded, usedDefault=%v", usedDefault)
 
-	// 连接 Redis（用于流行度更新）
-	cache, err := rediscache.NewFromEnv(&cfg.Redis)
+	workerPprof, err := observability.NewPprofServer(
+		"worker",
+		cfg.Observability.Pprof.Enabled,
+		cfg.Observability.Pprof.WorkerAddr,
+	)
 	if err != nil {
-		log.Printf("Redis config error (popularity worker disabled): %v", err)
-		cache = nil
-	} else {
-		pingCtx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-		defer cancel()
-		if err := cache.Ping(pingCtx); err != nil {
-			log.Printf("Redis not available (popularity worker disabled): %v", err)
-			_ = cache.Close()
-			cache = nil
-		} else {
-			defer cache.Close()
-			log.Printf("Redis connected (popularity worker enabled)")
+		log.Fatalf("start worker pprof failed: %v", err)
+	}
+	defer workerPprof.Close()
+
+	rabbit, err := mq.NewRabbitMQ(cfg.RabbitMQ)
+	if err != nil {
+		log.Fatalf("connect rabbitmq failed: %v", err)
+	}
+	defer rabbit.Close()
+
+	//  worker 启动时也连接 Redis
+	//如果 Redis 连不上，worker 仍然可以消费消息，只是不做缓存删除
+	redisClient, err := cache.New(cfg.Redis)
+	if err != nil {
+		log.Printf("redis unavailable, cache invalidation disabled: %v", err)
+		redisClient = nil
+	}
+	videoWorker := worker.NewVideoWorker(redisClient)
+
+	//API 进程需要连 MySQL
+	//worker 进程也需要连 MySQL
+	sqlDB, err := db.New(cfg.Database)
+	if err != nil {
+		log.Fatalf("connect mysql failed: %v", err)
+	}
+	videoRepo := video.NewRepository(sqlDB)
+
+	likeWorker := worker.NewLikeWorker(videoRepo, redisClient)
+
+	commentWorker := worker.NewCommentWorker(videoRepo, redisClient)
+
+	go consumeVideoPublished(rabbit, videoWorker)
+	go consumeLike(rabbit, likeWorker)
+	go consumeComment(rabbit, commentWorker)
+
+	log.Println("worker started, waiting message...")
+	select {} //永远阻塞，让主 goroutine 不退出
+}
+
+func consumeVideoPublished(rabbit *mq.RabbitMQ, videoWorker *worker.VideoWorker) {
+	if err := rabbit.DeclareQueue(mq.VideoPublishedQueueName); err != nil {
+		log.Fatalf("declare video queue failed: %v", err)
+	}
+
+	deliveries, err := rabbit.Consume(mq.VideoPublishedQueueName)
+	if err != nil {
+		log.Fatalf("consume video queue failed: %v", err)
+	}
+
+	log.Println("video worker started")
+
+	for d := range deliveries {
+		var event mq.VideoPublishedEvent
+		if err := json.Unmarshal(d.Body, &event); err != nil {
+			log.Printf("invalid video message: %s", string(d.Body))
+			d.Nack(false, false)
+			continue
+		}
+
+		switch event.EventType {
+		case "video_published", "video_deleted":
+			if err := videoWorker.HandleVideoPublished(context.Background(), event); err != nil {
+				log.Printf("handle video event failed: %v", err)
+				d.Nack(false, true)
+				continue
+			}
+		default:
+			log.Printf("unknown video event type: %s", event.EventType)
+			d.Nack(false, false)
+			continue
+		}
+
+		if err := d.Ack(false); err != nil {
+			log.Printf("ack video message failed: %v", err)
 		}
 	}
-	// 连接 RabbitMQ
-	url := "amqp://" + cfg.RabbitMQ.Username + ":" + cfg.RabbitMQ.Password + "@" + cfg.RabbitMQ.Host + ":" + strconv.Itoa(cfg.RabbitMQ.Port) + "/"
-	conn, err := amqp.Dial(url)
+}
+
+func consumeLike(rabbit *mq.RabbitMQ, likeWorker *worker.LikeWorker) {
+	if err := rabbit.DeclareQueue(mq.LikeQueueName); err != nil {
+		log.Fatalf("declare like queue failed: %v", err)
+	}
+	deliveries, err := rabbit.Consume(mq.LikeQueueName)
 	if err != nil {
-		log.Fatalf("Failed to connect rabbitmq: %v", err)
+		log.Fatalf("consume like queue failed: %v", err)
 	}
-	defer conn.Close()
-	// 创建 RabbitMQ 通道
-	ch, err := conn.Channel()
-	if err != nil {
-		log.Fatalf("Failed to open rabbitmq channel: %v", err)
-	}
-	defer ch.Close()
-	// 声明 Social 交换机和队列
-	if err := declareSocialTopology(ch); err != nil {
-		log.Fatalf("Failed to declare social topology: %v", err)
-	}
-	if err := declareLikeTopology(ch); err != nil {
-		log.Fatalf("Failed to declare like topology: %v", err)
-	}
-	if err := declareCommentTopology(ch); err != nil {
-		log.Fatalf("Failed to declare comment topology: %v", err)
-	}
-	if cache != nil {
-		if err := declarePopularityTopology(ch); err != nil {
-			log.Fatalf("Failed to declare popularity topology: %v", err)
+	log.Println("like worker started")
+
+	for d := range deliveries {
+		var event mq.LikeEvent
+		if err := json.Unmarshal(d.Body, &event); err != nil {
+			log.Printf("invalid like message: %s", string(d.Body))
+			d.Nack(false, false)
+			continue
+		}
+		switch event.EventType {
+		case "like_created":
+			if err := likeWorker.HandleLikeCreated(context.Background(), event); err != nil {
+				log.Printf("handle like created failed: %v", err)
+				d.Nack(false, true)
+				continue
+			}
+		case "like_deleted":
+			if err := likeWorker.HandleLikeDeleted(context.Background(), event); err != nil {
+				log.Printf("handle like deleted failed: %v", err)
+				d.Nack(false, true)
+				continue
+			}
+		default:
+			log.Printf("unknown like event type: %s", event.EventType)
+			d.Nack(false, false)
+			continue
+		}
+		if err := d.Ack(false); err != nil {
+			log.Printf("ack like message failed: %v", err)
 		}
 	}
-	if err := ch.Qos(50, 0, false); err != nil {
-		log.Fatalf("Failed to set qos: %v", err)
-	}
-
-	repo := social.NewSocialRepository(sqlDB)
-	socialWorker := worker.NewSocialWorker(ch, repo, socialQueue)
-	videoRepo := video.NewVideoRepository(sqlDB)
-	likeRepo := video.NewLikeRepository(sqlDB)
-	commentRepo := video.NewCommentRepository(sqlDB)
-	likeWorker := worker.NewLikeWorker(ch, likeRepo, videoRepo, likeQueue)
-	commentWorker := worker.NewCommentWorker(ch, commentRepo, videoRepo, commentQueue)
-	var popularityWorker *worker.PopularityWorker
-	if cache != nil {
-		popularityWorker = worker.NewPopularityWorker(ch, cache, popularityQueue)
-	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	pprofServer, err := observability.NewPprofServer(
-		"Worker",
-		cfg.ObservabilityConfig.Pprof.Enabled,
-		cfg.ObservabilityConfig.Pprof.WorkerAddr,
-	)
-	if err != nil {
-		log.Printf("Failed to start worker pprof server: %v", err)
-	}
-	defer pprofServer.Close()
-
-	errCh := make(chan error, 4)
-	log.Printf("Worker started, consuming queue=%s", socialQueue)
-	go func() { errCh <- socialWorker.Run(ctx) }()
-	log.Printf("Worker started, consuming queue=%s", likeQueue)
-	go func() { errCh <- likeWorker.Run(ctx) }()
-	log.Printf("Worker started, consuming queue=%s", commentQueue)
-	go func() { errCh <- commentWorker.Run(ctx) }()
-	if popularityWorker != nil {
-		log.Printf("Worker started, consuming queue=%s", popularityQueue)
-		go func() { errCh <- popularityWorker.Run(ctx) }()
-	}
-
-	err = <-errCh
-	if err != nil && err != context.Canceled {
-		log.Fatalf("Worker stopped: %v", err)
-	}
-	log.Printf("Worker stopped")
 }
 
-func declareSocialTopology(ch *amqp.Channel) error {
-	if err := ch.ExchangeDeclare(
-		socialExchange,
-		"topic",
-		true,
-		false,
-		false,
-		false,
-		nil,
-	); err != nil {
-		return err
+func consumeComment(rabbit *mq.RabbitMQ, commentWorker *worker.CommentWorker) {
+	if err := rabbit.DeclareQueue(mq.CommentQueueName); err != nil {
+		log.Fatalf("declare comment queue failed: %v", err)
 	}
-
-	q, err := ch.QueueDeclare(
-		socialQueue,
-		true,
-		false,
-		false,
-		false,
-		nil,
-	)
+	deliveries, err := rabbit.Consume(mq.CommentQueueName)
 	if err != nil {
-		return err
+		log.Fatalf("consume comment queue failed: %v", err)
 	}
+	log.Println("comment worker started")
 
-	if err := ch.QueueBind(
-		q.Name,
-		socialBindingKey,
-		socialExchange,
-		false,
-		nil,
-	); err != nil {
-		return err
+	for d := range deliveries {
+		var event mq.CommentEvent
+		if err := json.Unmarshal(d.Body, &event); err != nil {
+			log.Printf("invalid comment message: %s", string(d.Body))
+			d.Nack(false, false)
+			continue
+		}
+		switch event.EventType {
+		case "comment_published":
+			if err := commentWorker.HandleCommentPublished(context.Background(), event); err != nil {
+				log.Printf("handle comment published failed: %v", err)
+				d.Nack(false, true)
+				continue
+			}
+		case "comment_deleted":
+			if err := commentWorker.HandleCommentDeleted(context.Background(), event); err != nil {
+				log.Printf("handle comment deleted failed: %v", err)
+				d.Nack(false, true)
+				continue
+			}
+		default:
+			log.Printf("unknown comment event type: %s", event.EventType)
+			d.Nack(false, false)
+			continue
+		}
+		if err := d.Ack(false); err != nil {
+			log.Printf("ack comment message failed: %v", err)
+		}
 	}
-	return nil
 }
 
-func declarePopularityTopology(ch *amqp.Channel) error {
-	if err := ch.ExchangeDeclare(
-		popularityExchange,
-		"topic",
-		true,
-		false,
-		false,
-		false,
-		nil,
-	); err != nil {
-		return err
+func consumeSocial(rabbit *mq.RabbitMQ, socialWorker *worker.SocialWorker) {
+	if err := rabbit.DeclareQueue(mq.SocialQueueName); err != nil {
+		log.Fatalf("declare social queue failed: %v", err)
 	}
 
-	q, err := ch.QueueDeclare(
-		popularityQueue,
-		true,
-		false,
-		false,
-		false,
-		nil,
-	)
+	deliveries, err := rabbit.Consume(mq.SocialQueueName)
 	if err != nil {
-		return err
+		log.Fatalf("consume social queue failed: %v", err)
 	}
 
-	return ch.QueueBind(
-		q.Name,
-		popularityBindingKey,
-		popularityExchange,
-		false,
-		nil,
-	)
-}
+	log.Println("social worker started")
 
-func declareLikeTopology(ch *amqp.Channel) error {
-	if err := ch.ExchangeDeclare(
-		likeExchange,
-		"topic",
-		true,
-		false,
-		false,
-		false,
-		nil,
-	); err != nil {
-		return err
+	for d := range deliveries {
+		var event mq.SocialEvent
+		if err := json.Unmarshal(d.Body, &event); err != nil {
+			log.Printf("invalid social message: %s", string(d.Body))
+			d.Nack(false, false)
+			continue
+		}
+
+		switch event.EventType {
+		case "social_followed":
+			if err := socialWorker.HandleSocialFollowed(context.Background(), event); err != nil {
+				log.Printf("handle social followed failed: %v", err)
+				d.Nack(false, true)
+				continue
+			}
+		case "social_unfollowed":
+			if err := socialWorker.HandleSocialUnfollowed(context.Background(), event); err != nil {
+				log.Printf("handle social unfollowed failed: %v", err)
+				d.Nack(false, true)
+				continue
+			}
+		default:
+			log.Printf("unknown social event type: %s", event.EventType)
+			d.Nack(false, false)
+			continue
+		}
+
+		if err := d.Ack(false); err != nil {
+			log.Printf("ack social message failed: %v", err)
+		}
 	}
-
-	q, err := ch.QueueDeclare(
-		likeQueue,
-		true,
-		false,
-		false,
-		false,
-		nil,
-	)
-	if err != nil {
-		return err
-	}
-
-	return ch.QueueBind(
-		q.Name,
-		likeBindingKey,
-		likeExchange,
-		false,
-		nil,
-	)
-}
-
-func declareCommentTopology(ch *amqp.Channel) error {
-	if err := ch.ExchangeDeclare(
-		commentExchange,
-		"topic",
-		true,
-		false,
-		false,
-		false,
-		nil,
-	); err != nil {
-		return err
-	}
-
-	q, err := ch.QueueDeclare(
-		commentQueue,
-		true,
-		false,
-		false,
-		false,
-		nil,
-	)
-	if err != nil {
-		return err
-	}
-
-	return ch.QueueBind(
-		q.Name,
-		commentBindingKey,
-		commentExchange,
-		false,
-		nil,
-	)
 }

@@ -1,116 +1,97 @@
 package video
 
 import (
+	"backend/internal/mq"
 	"context"
 	"errors"
-	"feedsystem_video_go/internal/middleware/rabbitmq"
-	rediscache "feedsystem_video_go/internal/middleware/redis"
+	"log"
 	"strings"
-
-	"gorm.io/gorm"
 )
 
 type CommentService struct {
-	repo            *CommentRepository
-	VideoRepository *VideoRepository
-	cache           *rediscache.Client
-	commentMQ       *rabbitmq.CommentMQ
-	popularityMQ    *rabbitmq.PopularityMQ
+	repo   *CommentRepository
+	rabbit *mq.RabbitMQ
 }
 
-func NewCommentService(repo *CommentRepository, videoRepo *VideoRepository, cache *rediscache.Client, commentMQ *rabbitmq.CommentMQ, popularityMQ *rabbitmq.PopularityMQ) *CommentService {
-	return &CommentService{repo: repo, VideoRepository: videoRepo, cache: cache, commentMQ: commentMQ, popularityMQ: popularityMQ}
+func NewCommentService(repo *CommentRepository, rabbit *mq.RabbitMQ) *CommentService {
+	return &CommentService{repo: repo, rabbit: rabbit}
 }
 
 func (s *CommentService) Publish(ctx context.Context, comment *Comment) error {
 	if comment == nil {
 		return errors.New("comment is nil")
 	}
-	comment.Username = strings.TrimSpace(comment.Username)
+
 	comment.Content = strings.TrimSpace(comment.Content)
+
 	if comment.VideoID == 0 || comment.AuthorID == 0 {
 		return errors.New("video_id and author_id are required")
 	}
 	if comment.Content == "" {
 		return errors.New("content is required")
 	}
+	if len(comment.Content) > 500 {
+		return errors.New("content is too long")
+	}
 
-	exists, err := s.VideoRepository.IsExist(ctx, comment.VideoID)
-	if err != nil {
+	// 同步写入 DB，拿到 ID 后立即返回给前端
+	if err := s.repo.Create(ctx, comment); err != nil {
 		return err
 	}
-	if !exists {
-		return errors.New("video not found")
-	}
 
-	mysqlEnqueued := false
-	redisEnqueued := false
-	if s.commentMQ != nil {
-		if err := s.commentMQ.Publish(ctx, comment.Username, comment.VideoID, comment.AuthorID, comment.Content); err == nil {
-			mysqlEnqueued = true
+	// 异步：热度更新交给 Worker
+	if s.rabbit != nil {
+		event := mq.CommentEvent{
+			EventType: "comment_published",
+			VideoID:   comment.VideoID,
+			AuthorID:  comment.AuthorID,
 		}
-	}
-	if s.popularityMQ != nil {
-		if err := s.popularityMQ.Update(ctx, comment.VideoID, 1); err == nil {
-			redisEnqueued = true
+		if err := s.rabbit.DeclareQueue(mq.CommentQueueName); err != nil {
+			log.Printf("declare comment queue failed: %v", err)
+		} else if err := s.rabbit.PublishJSON(ctx, mq.CommentQueueName, event); err != nil {
+			log.Printf("publish comment event failed: %v", err)
 		}
-	}
-	if mysqlEnqueued && redisEnqueued {
-		return nil
-	}
-
-	// Fallback: direct MySQL write when comment MQ publish fails.
-	if !mysqlEnqueued {
-		if err := s.repo.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			if err := tx.Select("id").First(&Video{}, comment.VideoID).Error; err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
-					return errors.New("video not found")
-				}
-				return err
-			}
-			if err := tx.Create(comment).Error; err != nil {
-				return err
-			}
-			return tx.Model(&Video{}).Where("id = ?", comment.VideoID).
-				UpdateColumn("popularity", gorm.Expr("popularity + 1")).Error
-		}); err != nil {
-			return err
-		}
-	}
-
-	// Fallback: direct Redis update when popularity MQ publish fails.
-	if !redisEnqueued {
-		UpdatePopularityCache(ctx, s.cache, comment.VideoID, 1)
 	}
 	return nil
 }
 
+func (s *CommentService) ListByVideoID(ctx context.Context, videoID uint) ([]Comment, error) {
+	if videoID == 0 {
+		return nil, errors.New("video_id is required")
+	}
+	return s.repo.ListByVideoID(ctx, videoID)
+}
+
 func (s *CommentService) Delete(ctx context.Context, commentID uint, accountID uint) error {
-	comment, err := s.repo.GetByID(ctx, commentID)
+	if commentID == 0 || accountID == 0 {
+		return errors.New("comment_id and account_id are required")
+	}
+
+	comment, err := s.repo.FindByID(ctx, commentID)
 	if err != nil {
 		return err
 	}
-	if comment == nil {
-		return errors.New("comment not found")
-	}
 	if comment.AuthorID != accountID {
-		return errors.New("permission denied")
+		return errors.New("unauthorized")
 	}
-	if s.commentMQ != nil {
-		if err := s.commentMQ.Delete(ctx, commentID); err == nil {
-			return nil
+
+	// 同步删除
+	if err := s.repo.Delete(ctx, commentID); err != nil {
+		return err
+	}
+
+	// 异步：热度更新交给 Worker
+	if s.rabbit != nil {
+		event := mq.CommentEvent{
+			EventType: "comment_deleted",
+			VideoID:   comment.VideoID,
+		}
+		if err := s.rabbit.DeclareQueue(mq.CommentQueueName); err != nil {
+			log.Printf("declare comment queue failed: %v", err)
+		} else if err := s.rabbit.PublishJSON(ctx, mq.CommentQueueName, event); err != nil {
+			log.Printf("publish comment delete event failed: %v", err)
 		}
 	}
-	return s.repo.DeleteComment(ctx, comment)
-}
 
-func (s *CommentService) GetAll(ctx context.Context, videoID uint) ([]Comment, error) {
-	exists, err := s.VideoRepository.IsExist(ctx, videoID)
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, errors.New("video not found")
-	}
-	return s.repo.GetAllComments(ctx, videoID)
+	return nil
 }

@@ -2,26 +2,26 @@ server:
   port: 8080
 
 database:
-  host: localhost
-  port: 3306
+  host: 127.0.0.1
+  port: 3307
   user: root
-  password: 123456
+  password: "123456"
   dbname: feedsystem
 
 redis:
-  host: localhost
+  host: 127.0.0.1
   port: 6379
-  password: 123456
+  password: "123456"
   db: 0
 
 rabbitmq:
-  host: localhost
+  host: 127.0.0.1
   port: 5672
   username: admin
   password: password123
-  
+
 observability:
-  pprof:
+  pprof: 
     enabled: true
-    api_addr: localhost:6060
-    worker_addr: localhost:6061
+    api_addr: 127.0.0.1:6060
+    worker_addr: 127.0.0.1:6061

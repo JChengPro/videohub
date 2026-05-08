@@ -1,17 +1,21 @@
 :root {
   color-scheme: dark;
-  --bg: #0b0b0f;
-  --panel: rgba(255, 255, 255, 0.06);
-  --panel-2: rgba(255, 255, 255, 0.1);
-  --text: rgba(255, 255, 255, 0.92);
-  --muted: rgba(255, 255, 255, 0.64);
-  --border: rgba(255, 255, 255, 0.12);
+  --bg: #07080d;
+  --bg-deep: #030407;
+  --panel: rgba(255, 255, 255, 0.075);
+  --panel-2: rgba(255, 255, 255, 0.13);
+  --glass: rgba(9, 11, 18, 0.66);
+  --text: rgba(255, 255, 255, 0.94);
+  --muted: rgba(237, 242, 247, 0.66);
+  --border: rgba(255, 255, 255, 0.13);
   --primary: #fe2c55;
   --primary-2: #25f4ee;
+  --amber: #f8b84e;
   --danger: #fe2c55;
   --ok: #22c55e;
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, 'Apple Color Emoji',
-    'Segoe UI Emoji';
+  --shadow-lg: 0 28px 90px rgba(0, 0, 0, 0.48);
+  --shadow-md: 0 18px 52px rgba(0, 0, 0, 0.34);
+  font-family: 'Avenir Next', 'DIN Alternate', 'PingFang SC', 'Microsoft YaHei UI', ui-sans-serif, system-ui, sans-serif;
   line-height: 1.5;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -43,9 +47,27 @@ body {
 
 body {
   margin: 0;
-  background: radial-gradient(1200px 900px at 20% -25%, rgba(254, 44, 85, 0.18), transparent 60%),
-    radial-gradient(900px 700px at 90% 10%, rgba(37, 244, 238, 0.12), transparent 55%), var(--bg);
+  background:
+    radial-gradient(900px 620px at 4% -10%, rgba(254, 44, 85, 0.22), transparent 62%),
+    radial-gradient(800px 620px at 92% 6%, rgba(37, 244, 238, 0.16), transparent 58%),
+    radial-gradient(860px 680px at 70% 110%, rgba(248, 184, 78, 0.08), transparent 60%),
+    linear-gradient(135deg, var(--bg-deep), var(--bg) 42%, #11131b);
   color: var(--text);
+  overflow: hidden;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  opacity: 0.35;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(circle at 50% 20%, black, transparent 72%);
 }
 
 a {
@@ -64,11 +86,26 @@ a:hover {
 }
 
 .card {
-  background: var(--panel);
+  position: relative;
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.045) 55%),
+    var(--panel);
   border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 16px;
-  backdrop-filter: blur(10px);
+  border-radius: 22px;
+  padding: 18px;
+  backdrop-filter: blur(18px) saturate(130%);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.16), transparent 34%, rgba(255, 255, 255, 0.04));
+  opacity: 0.65;
 }
 
 .card + .card {
@@ -107,14 +144,16 @@ a:hover {
 }
 
 .title {
-  font-size: 18px;
-  font-weight: 700;
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 0.01em;
   margin: 0 0 6px;
 }
 
 .subtle {
   font-size: 13px;
   color: var(--muted);
+  letter-spacing: 0.01em;
 }
 
 label {
@@ -128,12 +167,13 @@ input,
 textarea,
 select {
   width: 100%;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.075);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 15px;
   color: var(--text);
-  padding: 10px 12px;
+  padding: 11px 13px;
   outline: none;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
 }
 
 textarea {
@@ -144,32 +184,36 @@ textarea {
 input:focus,
 textarea:focus,
 select:focus {
-  border-color: rgba(124, 92, 255, 0.8);
-  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.22);
+  background: rgba(255, 255, 255, 0.105);
+  border-color: rgba(37, 244, 238, 0.58);
+  box-shadow: 0 0 0 4px rgba(37, 244, 238, 0.13);
 }
 
 button {
   appearance: none;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.065));
   color: var(--text);
-  border-radius: 12px;
-  padding: 10px 14px;
+  border-radius: 14px;
+  padding: 10px 15px;
   cursor: pointer;
-  transition: 120ms ease;
+  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
 }
 
 button:hover {
-  background: rgba(255, 255, 255, 0.12);
+  transform: translateY(-1px);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.17), rgba(255, 255, 255, 0.08));
 }
 
 button.primary {
   border-color: rgba(254, 44, 85, 0.55);
-  background: rgba(254, 44, 85, 0.18);
+  background: linear-gradient(135deg, rgba(254, 44, 85, 0.9), rgba(255, 112, 67, 0.72));
+  box-shadow: 0 18px 42px rgba(254, 44, 85, 0.22);
 }
 
 button.primary:hover {
-  background: rgba(254, 44, 85, 0.26);
+  background: linear-gradient(135deg, rgba(255, 66, 100, 0.96), rgba(255, 135, 67, 0.82));
 }
 
 button.danger {
@@ -193,8 +237,9 @@ button:disabled {
   padding: 6px 10px;
   border-radius: 999px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.075);
   font-size: 13px;
+  backdrop-filter: blur(12px);
 }
 
 .pill.ok {
@@ -208,7 +253,7 @@ button:disabled {
 }
 
 .mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-family: 'SF Mono', 'Cascadia Code', ui-monospace, Menlo, Monaco, Consolas, monospace;
 }
 
 .pre {

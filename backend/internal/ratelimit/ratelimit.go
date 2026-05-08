@@ -1,48 +1,48 @@
 package ratelimit
 
 import (
-	rediscache "feedsystem_video_go/internal/middleware/redis"
-	jwt "feedsystem_video_go/internal/middleware/jwt"
+	"backend/internal/cache"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
-	"strconv"
+
 	"github.com/gin-gonic/gin"
 )
 
 type KeyFunc func(*gin.Context) (string, bool)
 
 func Limit(
-	cache *rediscache.Client,
+	cacheClient *cache.Client,
 	keyPrefix string,
 	maxRequests int64,
 	window time.Duration,
 	keyFunc KeyFunc,
 ) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if cache == nil || keyFunc == nil || maxRequests <= 0 || window <= 0 {
-			c.Next()
+	return func(ctx *gin.Context) {
+		if cacheClient == nil || keyFunc == nil || maxRequests <= 0 || window <= 0 {
+			ctx.Next()
 			return
 		}
-		subject, ok := keyFunc(c)
+		subject, ok := keyFunc(ctx)
 		if !ok {
-			c.Next()
+			ctx.Next()
 			return
 		}
 		key := buildKey(keyPrefix, subject)
-		count, err := cache.IncrementWithExpire(c.Request.Context(), key, window)
+		count, err := cacheClient.IncrementWithExpire(ctx, key, window)
 		if err != nil {
-			c.Next()
+			ctx.Next()
 			return
 		}
 		if count > maxRequests {
-			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+			ctx.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"error": "too many requests",
 			})
 			return
 		}
-		c.Next()
+		ctx.Next()
 	}
 }
 
@@ -54,7 +54,7 @@ func buildKey(keyPrefix, subject string) string {
 	return fmt.Sprintf("feedsystem:ratelimit:%s:%s", keyPrefix, strings.TrimSpace(subject))
 }
 
-func KeyByIP(c *gin.Context) (string, bool) {
+func KeyByIp(c *gin.Context) (string, bool) {
 	ip := strings.TrimSpace(c.ClientIP())
 	if ip == "" {
 		return "", false
@@ -63,8 +63,12 @@ func KeyByIP(c *gin.Context) (string, bool) {
 }
 
 func KeyByAccount(c *gin.Context) (string, bool) {
-	accountID, err := jwt.GetAccountID(c)
-	if err != nil || accountID == 0 {
+	value, ok := c.Get("accountID")
+	if !ok {
+		return "", false
+	}
+	accountID, ok := value.(uint)
+	if !ok || accountID == 0 {
 		return "", false
 	}
 	return strconv.FormatUint(uint64(accountID), 10), true

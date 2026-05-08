@@ -2,7 +2,7 @@ import { postJson } from './client'
 import type { Comment, MessageResponse } from './types'
 
 export function listAll(videoId: number) {
-  return postJson<Comment[]>('/comment/listAll', { video_id: videoId })
+  return postJson<Comment[] | null>('/comment/listAll', { video_id: videoId }).then((res) => (Array.isArray(res) ? res : []))
 }
 
 export function publish(videoId: number, content: string) {

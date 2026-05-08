@@ -1,94 +1,95 @@
 package video
 
 import (
-	"feedsystem_video_go/internal/account"
-	"feedsystem_video_go/internal/middleware/jwt"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
 
 type CommentHandler struct {
-	service        *CommentService
-	accountService *account.AccountService
+	service *CommentService
 }
 
-func NewCommentHandler(service *CommentService, accountService *account.AccountService) *CommentHandler {
-	return &CommentHandler{service: service, accountService: accountService}
+func NewCommentHandler(service *CommentService) *CommentHandler {
+	return &CommentHandler{service: service}
 }
-func (h *CommentHandler) PublishComment(c *gin.Context) {
+
+func (h *CommentHandler) Publish(c *gin.Context) {
 	var req PublishCommentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if req.Content == "" {
-		c.JSON(400, gin.H{"error": "content is required"})
+
+	accountID, ok := currentAccountID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid accountID"})
 		return
 	}
-	if req.VideoID <= 0 {
-		c.JSON(400, gin.H{"error": "video_id is required"})
+
+	usernameValue, ok := c.Get("username")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "username not found"})
 		return
 	}
-	authorId, err := jwt.GetAccountID(c)
-	if err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+	username, ok := usernameValue.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "username has invalid type"})
 		return
 	}
-	user, err := h.accountService.FindByID(c.Request.Context(), authorId)
-	if err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
-		return
-	}
+
 	comment := &Comment{
-		Username: user.Username,
 		VideoID:  req.VideoID,
-		AuthorID: authorId,
+		AuthorID: accountID,
+		Username: username,
 		Content:  req.Content,
 	}
+
 	if err := h.service.Publish(c.Request.Context(), comment); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(200, gin.H{"message": "comment published successfully"})
+
+	c.JSON(http.StatusOK, comment)
 }
 
-func (h *CommentHandler) DeleteComment(c *gin.Context) {
+// 这个接口可以公开，不需要登录。
+func (h *CommentHandler) ListAll(c *gin.Context) {
+	var req struct {
+		VideoID uint `json:"video_id"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	comments, err := h.service.ListByVideoID(c.Request.Context(), req.VideoID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, comments)
+}
+
+func (h *CommentHandler) Delete(c *gin.Context) {
 	var req DeleteCommentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	accountID, err := jwt.GetAccountID(c)
-	if err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+
+	accountID, ok := currentAccountID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid accountID"})
 		return
 	}
-	if req.CommentID <= 0 {
-		c.JSON(400, gin.H{"error": "comment_id is required"})
-		return
-	}
+
 	if err := h.service.Delete(c.Request.Context(), req.CommentID, accountID); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(200, gin.H{"message": "comment deleted successfully"})
-}
-
-func (h *CommentHandler) GetAllComments(c *gin.Context) {
-	var req GetAllCommentsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
-		return
-	}
-	if req.VideoID == 0 {
-		c.JSON(400, gin.H{"error": "video_id is required"})
-		return
-	}
-	comments, err := h.service.GetAll(c.Request.Context(), req.VideoID)
-	if err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(200, comments)
+	c.JSON(http.StatusOK, gin.H{"message": "comment deleted"})
 }

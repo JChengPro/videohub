@@ -1,5 +1,5 @@
 import { postForm, postJson } from './client'
-import type { Video } from './types'
+import type { MessageResponse, Video } from './types'
 
 export function publishVideo(input: { title: string; description: string; play_url: string; cover_url: string }) {
   return postJson<Video>('/video/publish', input, { authRequired: true })
@@ -20,9 +20,13 @@ export function uploadCover(file: File) {
 }
 
 export function listByAuthorId(authorId: number) {
-  return postJson<Video[]>('/video/listByAuthorID', { author_id: authorId })
+  return postJson<Video[] | null>('/video/listByAuthorID', { author_id: authorId }).then((res) => (Array.isArray(res) ? res : []))
 }
 
 export function getDetail(id: number) {
   return postJson<Video>('/video/getDetail', { id })
+}
+
+export function deleteVideo(id: number) {
+  return postJson<MessageResponse>('/video/delete', { id }, { authRequired: true })
 }

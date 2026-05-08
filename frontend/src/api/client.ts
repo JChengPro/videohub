@@ -16,6 +16,16 @@ type ApiErrorBody = { error?: string }
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/api'
 
+function errorMessageFromResponse(status: number, data: unknown) {
+  if (data && typeof data === 'object' && (data as ApiErrorBody).error) {
+    return String((data as ApiErrorBody).error)
+  }
+  if (status === 413) {
+    return '上传文件太大，请压缩后再试（视频最大 200MB，封面最大 10MB）'
+  }
+  return `请求失败 (${status})`
+}
+
 export async function postJson<T>(path: string, body: unknown, options?: { authRequired?: boolean }): Promise<T> {
   const auth = useAuthStore()
   const token = auth.token
@@ -47,10 +57,7 @@ export async function postJson<T>(path: string, body: unknown, options?: { authR
     if (res.status === 401) {
       auth.clearToken()
     }
-    const msg =
-      data && typeof data === 'object' && (data as ApiErrorBody).error
-        ? String((data as ApiErrorBody).error)
-        : `请求失败 (${res.status})`
+    const msg = errorMessageFromResponse(res.status, data)
     throw new ApiError(msg, res.status, data)
   }
 
@@ -88,10 +95,7 @@ export async function postForm<T>(path: string, body: FormData, options?: { auth
     if (res.status === 401) {
       auth.clearToken()
     }
-    const msg =
-      data && typeof data === 'object' && (data as ApiErrorBody).error
-        ? String((data as ApiErrorBody).error)
-        : `请求失败 (${res.status})`
+    const msg = errorMessageFromResponse(res.status, data)
     throw new ApiError(msg, res.status, data)
   }
 

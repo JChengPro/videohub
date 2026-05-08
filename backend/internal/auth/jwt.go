@@ -1,26 +1,25 @@
-// internal/auth/jwt.go
 package auth
 
 import (
-	"errors"
 	"os"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
 
-func jwtSecret() []byte {
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		secret = "change-me-in-env"
-	}
-	return []byte(secret)
-}
-
+// Claims就是 JWT 的 Payload。  Payload 是 token 里携带的数据，也叫 claims
 type Claims struct {
 	AccountID uint   `json:"account_id"`
 	Username  string `json:"username"`
 	jwt.RegisteredClaims
+}
+
+func jwtSecret() []byte {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		secret = "feedsystem-secret"
+	}
+	return []byte(secret)
 }
 
 func GenerateToken(accountID uint, username string) (string, error) {
@@ -35,9 +34,7 @@ func GenerateToken(accountID uint, username string) (string, error) {
 			NotBefore: jwt.NewNumericDate(now),
 		},
 	}
-
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-
 	return token.SignedString(jwtSecret())
 }
 
@@ -46,20 +43,15 @@ func ParseToken(tokenString string) (*Claims, error) {
 		tokenString,
 		&Claims{},
 		func(token *jwt.Token) (interface{}, error) {
-			if token.Method == nil || token.Method.Alg() != jwt.SigningMethodHS256.Alg() {
-				return nil, errors.New("unexpected signing method")
-			}
 			return jwtSecret(), nil
 		},
 	)
 	if err != nil {
 		return nil, err
 	}
-
 	claims, ok := token.Claims.(*Claims)
 	if !ok || !token.Valid {
 		return nil, jwt.ErrTokenInvalidClaims
 	}
-
 	return claims, nil
 }

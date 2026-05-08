@@ -7,7 +7,7 @@ type Video struct {
 	AuthorID    uint      `gorm:"index;not null" json:"author_id"`
 	Username    string    `gorm:"type:varchar(255);not null" json:"username"`
 	Title       string    `gorm:"type:varchar(255);not null" json:"title"`
-	Description string    `gorm:"type:varchar(255);" json:"description,omitempty"`
+	Description string    `gorm:"type:varchar(255)" json:"description"`
 	PlayURL     string    `gorm:"type:varchar(255);not null" json:"play_url"`
 	CoverURL    string    `gorm:"type:varchar(255);not null" json:"cover_url"`
 	CreateTime  time.Time `gorm:"autoCreateTime" json:"create_time"`
@@ -15,34 +15,24 @@ type Video struct {
 	Popularity  int64     `gorm:"column:popularity;not null;default:0" json:"popularity"`
 }
 
-type PublishVideoRequest struct {
+type PublishRequest struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	PlayURL     string `json:"play_url"`
 	CoverURL    string `json:"cover_url"`
 }
 
-type DeleteVideoRequest struct {
+// 根据ID查找视频结构体
+type DetailRequest struct {
 	ID uint `json:"id"`
 }
 
-type ListByAuthorIDRequest struct {
+// 根据这个结构体的ID去查询相关的信息，要写这个结构体是为了ShouldBindJson传入的是结构体，上面都一样
+type ListByAuthorRequest struct {
 	AuthorID uint `json:"author_id"`
 }
 
-type GetDetailRequest struct {
+// 删除请求结构体
+type DeleteRequest struct {
 	ID uint `json:"id"`
-}
-
-type UpdateLikesCountRequest struct {
-	ID         uint  `json:"id"`
-	LikesCount int64 `json:"likes_count"`
-}
-
-type OutboxMsg struct {
-	ID         uint      `gorm:"primaryKey"`
-	VideoID    uint      `gorm:"index"`
-	EventType  string    `gorm:"type:varchar(50)"`
-	CreateTime time.Time `gorm:"autoCreateTime"`
-	Status     string    `gorm:"type:varchar(50);index"`
 }
