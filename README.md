@@ -1,11 +1,10 @@
-# feedsystem_video_go
+# feedsystem_go
 
-基于 Go 的短视频 Feed 系统（后端 + 前端），包含账号、视频、点赞、评论、关注与 Feed 流；支持 Redis 缓存与 RabbitMQ 异步 Worker（API 进程与 Worker 进程可拆分部署）。
+基于 Go 的短视频 Feed 系统（后端 + 前端），包含账号、视频、点赞、评论、关注与 Feed 流；支持 Redis 缓存与 RabbitMQ 异步 Worker。
 
-详细设计与接口说明请阅读：`feedsystem_video_go项目设计.md`（包含模块设计、表结构、流程图与接口清单）。
-## [项目演示](https://www.bilibili.com/video/BV1Dti7B9E6Y?vd_source=4b2884373b2c4c4147b10162c1709276)
+详细设计与接口说明请阅读：`项目设计.md`
 
-## Docker Compose 一键启动（推荐）
+## Docker Compose 一键启动
 
 要求：已安装 Docker Desktop / Docker Engine + Docker Compose。
 
@@ -18,13 +17,11 @@ docker compose up -d --build
 - 后端 API：`http://localhost:8080`
 - RabbitMQ 管理台：`http://localhost:15672`（默认账号 `admin` / `password123`）
 
-说明：
-- Compose 会启动 `mysql`、`redis`、`rabbitmq`、`backend`（API）、`worker`、`frontend`。
-- 容器内后端配置使用 `backend/configs/config.docker.yaml`（会挂载到 `/app/configs/config.yaml`）。
+Compose 会启动 `mysql`、`redis`、`rabbitmq`、`backend`（API）、`worker`、`frontend`。
 
-## 本地开发启动（不容器化）
+## 本地开发启动
 
-1) 先启动依赖（也可以只用 compose 拉起依赖）：
+1) 先启动依赖：
 ```bash
 docker compose up -d mysql redis rabbitmq
 ```
@@ -35,7 +32,7 @@ cd backend
 go run ./cmd
 ```
 
-3) 启动 Worker（消费 MQ、异步落库/更新 Redis 热榜）：
+3) 启动 Worker（消费 MQ、更新热度/缓存）：
 ```bash
 cd backend
 go run ./cmd/worker
@@ -47,9 +44,3 @@ cd frontend
 npm install
 npm run dev
 ```
-
-前端默认使用 Vite 代理 `/api` 到 `http://127.0.0.1:8080`（见 `frontend/vite.config.ts`）。
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=LeoninCS/feedsystem_video_go&type=Date)](https://www.star-history.com/#LeoninCS/feedsystem_video_go&Date)
