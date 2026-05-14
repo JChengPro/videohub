@@ -42,5 +42,9 @@ backend_bak/
 # Study compose file is local-only
 docker-compose.study.yml
 
+# Local rewrite notes
+重写后端记录.md
+*:Zone.Identifier
+
 # RabbitMQ local data
 data/
