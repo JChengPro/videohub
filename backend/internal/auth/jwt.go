@@ -17,7 +17,7 @@ type Claims struct {
 func jwtSecret() []byte {
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
-		secret = "feedsystem-secret"
+		secret = "videohub-secret"
 	}
 	return []byte(secret)
 }

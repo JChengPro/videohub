@@ -94,7 +94,7 @@ func DefaultLocalConfig() Config {
 			Port:     3307,
 			User:     "root",
 			Password: "123456",
-			DBName:   "feedsystem",
+			DBName:   "videohub",
 		},
 		Redis: RedisConfig{
 			Host:     "127.0.0.1",

@@ -1,4 +1,4 @@
-# feedsystem_video_go frontend
+# VideoHub frontend
 
 这是对接 `backend/`（Gin + GORM + MySQL + JWT）的一套 Vue3 前端调试 UI，覆盖全部后端路由：
 - Account：注册 / 登录 / 改密码 / 查找 / 改名 / 登出
@@ -6,7 +6,7 @@
 - Like：点赞 / 取消点赞 / 是否点赞
 - Comment：列表 / 发布 / 删除
 - Social：关注 / 取关 / 粉丝列表 / 关注列表
-- Feed：最新流 / 点赞数流 / 关注流
+- 视频流：最新视频流 / 点赞数视频流 / 关注视频流
 
 ## 开发启动
 

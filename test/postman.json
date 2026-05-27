@@ -1,8 +1,8 @@
 {
   "info": {
-    "name": "FeedSystem API (All-in-One)",
+    "name": "VideoHub API (All-in-One)",
     "_postman_id": "1a41aef7-6f8a-4bc4-8f55-0c6b12b930d2",
-    "description": "All endpoints in one collection.\n\nSuggested run order:\n1) Account/Register\n2) Account/Login (auto-saves jwt_token)\n3) Account/Find By Username (auto-saves accountId)\n4) Social/* (optional)\n5) Video/Publish (auto-saves videoId)\n6) Like/* (optional)\n7) Feed/* (optional; copy next fields for pagination)\n\nNotes:\n- JWT protected endpoints require Authorization: Bearer {{jwt_token}}.\n- Pagination vars:\n  - /feed/listLatest: response.next_time (unix seconds) -> feedLatestTime\n  - /feed/listLikesCount: response.next_likes_count_before/next_id_before -> feedLikesCountBefore/feedLikesIDBefore",
+    "description": "All endpoints in one collection.\n\nSuggested run order:\n1) Account/Register\n2) Account/Login (auto-saves jwt_token)\n3) Account/Find By Username (auto-saves accountId)\n4) Social/* (optional)\n5) Video/Publish (auto-saves videoId)\n6) Like/* (optional)\n7) Video Stream/* (optional; copy next fields for pagination)\n\nNotes:\n- JWT protected endpoints require Authorization: Bearer {{jwt_token}}.\n- Pagination vars:\n  - latest video stream: response.next_time -> feedLatestTime\n  - likes-count video stream: response.next_likes_count_before/next_id_before -> feedLikesCountBefore/feedLikesIDBefore",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "event": [
@@ -551,7 +551,7 @@
       ]
     },
     {
-      "name": "Feed",
+      "name": "Video Stream",
       "item": [
         {
           "name": "List By Following (JWT protected)",
@@ -594,7 +594,7 @@
           }
         },
         {
-          "name": "List Latest Feed (save feedLatestTime)",
+          "name": "List Latest Videos (save feedLatestTime)",
           "event": [
             {
               "listen": "test",
@@ -623,7 +623,7 @@
           }
         },
         {
-          "name": "List Feed By Likes Count (save feedLikesCountBefore)",
+          "name": "List Videos By Likes Count (save feedLikesCountBefore)",
           "event": [
             {
               "listen": "test",

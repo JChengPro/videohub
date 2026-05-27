@@ -6,7 +6,7 @@ database:
   port: 3307
   user: root
   password: "123456"
-  dbname: feedsystem
+  dbname: videohub
 
 redis:
   host: 127.0.0.1
