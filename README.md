@@ -1,10 +1,10 @@
 # feedsystem_go
 
-`feedsystem_go` 是一个基于 Go 和 Vue 的短视频 Feed 流系统，支持账号登录、视频发布、点赞、评论、关注、最新流、关注流、点赞数流和热榜等功能。
+基于 Go + Gin + GORM + Redis + RabbitMQ + Vue3 的短视频 Feed 流系统。项目包含账号、视频发布、点赞、评论、关注、最新流、关注流、点赞数流、热榜等功能，并提供 Docker Compose 一键启动。
 
-后端使用 Gin + GORM + MySQL 实现核心业务，Redis 用于 token 缓存、Feed 缓存、视频详情缓存、限流和 ZSET 热榜，RabbitMQ + Worker 用于热度更新、排行榜刷新和缓存失效等后台任务。项目提供 Docker Compose 一键启动，包含 MySQL、Redis、RabbitMQ、后端 API、Worker 和前端服务。
+后端采用 API + Worker 双进程模型：API 负责 HTTP 请求、参数校验、鉴权和同步写库；Worker 负责消费 RabbitMQ 消息，执行缓存失效、热度更新、Redis 时间线维护等异步任务。
 
-详细设计与接口说明见 [项目设计.md](项目设计.md)。
+详细设计见 [项目设计.md](项目设计.md)。
 
 ## 技术栈
 
@@ -12,26 +12,26 @@
 | --- | --- |
 | 后端 | Go, Gin, GORM, JWT |
 | 前端 | Vue 3, Vite, TypeScript, Nginx |
-| 数据库 | MySQL |
-| 缓存/限流/热榜 | Redis, Redis ZSET |
+| 数据库 | MySQL 8 |
+| 缓存/限流/排行 | Redis, Redis ZSET, go-cache |
 | 消息队列 | RabbitMQ |
 | 异步任务 | Go Worker |
 | 容器化 | Docker, Docker Compose |
 
-## Docker Compose 一键启动
+## 一键启动
 
 环境要求：
 
 - Docker Desktop / Docker Engine
 - Docker Compose
 
-启动全部服务：
+启动：
 
 ```bash
 docker compose up -d --build
 ```
 
-访问地址：
+访问：
 
 | 服务 | 地址 |
 | --- | --- |
@@ -47,31 +47,47 @@ RabbitMQ 默认账号：
 admin / password123
 ```
 
-停止服务：
+停止：
 
 ```bash
 docker compose down
 ```
 
-Compose 会启动：
+清空容器数据卷：
 
-```text
-mysql + redis + rabbitmq + backend(API) + worker + frontend
+```bash
+docker compose down -v
 ```
 
-容器内后端配置使用 [backend/configs/config.docker.yaml](backend/configs/config.docker.yaml)，该文件会挂载到容器内的 `/app/configs/config.yaml`。
+说明：仓库里的 `backend/configs/config.docker.yaml` 和 `docker-compose.yml` 使用本地演示默认密码，便于 clone 后直接运行。生产环境应改为环境变量或密钥管理，不应继续使用默认密码。
+
+## 项目结构
+
+```text
+.
+├── backend/              # Go API + Worker
+├── frontend/             # Vue3 前端，Nginx 反向代理 /api 到 backend
+├── picture/              # 架构图、流程图、表结构图
+├── test/                 # Postman 测试集合
+├── docker-compose.yml    # MySQL / Redis / RabbitMQ / API / Worker / Frontend
+├── 项目设计.md            # 详细设计文档
+└── README.md
+```
+
+`backend_bak/` 是本地备份目录，已通过 `.gitignore` 和 `.dockerignore` 排除，不属于对外提交内容。
 
 ## 系统架构
 
 ![整体架构](picture/整体架构.png)
 
-整体链路：
+核心链路：
 
-- `frontend` 通过 Nginx 将 `/api/*` 请求反向代理到 `backend:8080`。
-- `backend` 负责 HTTP API、参数校验、鉴权、同步写库和事件投递。
-- `worker` 消费 RabbitMQ 消息，处理热度更新、Redis ZSET 热榜更新和缓存失效。
-- `mysql` 存储账号、视频、点赞、评论、关注等核心数据。
-- `redis` 承担 token 缓存、Feed 缓存、视频详情缓存、限流计数和热榜排行。
+- `frontend` 由 Nginx 托管，浏览器请求 `/api/*` 时反向代理到 `backend:8080`。
+- `backend` 负责 HTTP API、JWT 鉴权、限流、同步写 MySQL 和写 Outbox。
+- `worker` 同时运行 Outbox Poller 和 RabbitMQ Consumer。
+- `mysql` 存储账号、视频、点赞、评论、关注、Outbox 消息。
+- `redis` 承担 token 缓存、接口限流、视频详情缓存、Feed 时间线、热榜排行。
+- `rabbitmq` 承担发布/删除视频、点赞、评论等后置事件投递。
 
 ## 核心功能
 
@@ -84,86 +100,111 @@ mysql + redis + rabbitmq + backend(API) + worker + frontend
 | 点赞 | 点赞、取消点赞、是否点赞、我的点赞列表 |
 | 评论 | 发表评论、删除评论、评论列表 |
 | 关注 | 关注、取关、粉丝列表、关注列表 |
-| 工程能力 | Docker Compose、Redis 缓存、RabbitMQ Worker、限流、pprof |
+| 工程 | Docker Compose、Outbox、Redis 缓存、RabbitMQ Worker、限流、pprof |
 
 ## 核心设计
 
-### 账号与鉴权
+### Outbox Pattern
+
+业务写库和 MQ 投递之间使用 Outbox Pattern：
+
+```text
+API 同步写业务表
+-> 同一事务写 outbox_msgs
+-> Worker 内的 Outbox Poller 扫描 pending 消息
+-> 发布到 RabbitMQ
+-> 成功后标记 published
+-> 失败则退回 pending 并记录 retry_count/last_error
+```
+
+已接入 Outbox 的事件：
+
+| 事件 | 业务表同步操作 | MQ 后置动作 |
+| --- | --- | --- |
+| `video_published` | 写 `videos` | 写入 `feed:global_timeline`，删除旧 Feed 缓存 |
+| `video_deleted` | 删除 `videos` | 从 `feed:global_timeline` 移除，删除旧 Feed 缓存 |
+| `like_created` / `like_deleted` | 写/删 `likes`，事务更新 `videos.likes_count` | 更新 `popularity`、更新热榜、删除详情缓存 |
+| `comment_published` / `comment_deleted` | 写/删 `comments` | 更新 `popularity`、更新热榜 |
+
+Outbox Poller 使用 `pending -> publishing -> published` 状态流转，通过条件更新抢占消息，避免多 worker 同时处理同一条 Outbox 记录。
+
+### Feed 最新流
+
+最新流已升级为 Redis 时间线 + 冷热分离 + singleflight + 三级缓存。
+
+Redis 时间线：
+
+```text
+key = feed:global_timeline
+member = video_id
+score = 视频发布时间毫秒时间戳
+```
+
+流程：
+
+```text
+/feed/listLatest
+-> 取 feed:global_timeline 最老 score 作为 watermark
+-> 请求时间 > watermark：热数据，从 Redis ZSET 取 video_id
+-> 请求时间 <= watermark：冷数据，查 MySQL
+-> Redis 热数据不够一页：从 MySQL 补齐冷数据
+-> GetVideoByIDs 根据 video_id 查询完整视频信息
+```
+
+三级缓存：
+
+```text
+L1：go-cache 本地内存缓存，视频实体缓存约 5 秒
+L2：Redis，key = video:entity:{id}，TTL 1 小时
+L3：MySQL videos 表
+```
+
+singleflight 用途：
+
+| Key | 场景 |
+| --- | --- |
+| `sf:fallback:global_timeline_rebuild` | Redis 时间线为空时，只允许一个请求重建最近 1000 条 |
+| `sf:cold:listLatest:{limit}:{reqTime}` | 冷数据分页查询去重 |
+| `sf:stitch:listLatest:{limit}:{cursor}` | 冷热边界补数据查询去重 |
+| `sf:entity:{videoID}` | 同一视频实体缓存 miss 时只查一次 MySQL |
+
+### Redis 热榜
+
+热榜使用 Redis ZSET：
+
+```text
+key = feed:hot:zset
+member = video_id
+score = popularity
+```
+
+点赞/评论事件由 Worker 异步更新 `videos.popularity` 和 `feed:hot:zset`，热门流优先从 Redis 取 video_id，再回表查询视频详情并按 ZSET 顺序重排；Redis 无数据时回退 MySQL 按 `popularity desc, create_time desc, id desc` 查询。
+
+### 鉴权与限流
 
 ![登录_鉴权_撤销token](picture/登录_鉴权_撤销token.png)
 
 - 密码使用 bcrypt 哈希后入库。
-- 登录成功后生成 JWT，并将 token 同时写入 MySQL 和 Redis。
-- 鉴权中间件优先读取 Redis token，未命中时回源 MySQL，通过后回填 Redis。
+- 登录成功后生成 JWT，并将 token 写入 MySQL 和 Redis。
+- JWTAuth 用于必须登录的接口。
+- SoftJWTAuth 用于 Feed 等公开接口：未登录可访问，登录时补充 `is_liked` 等用户态字段。
 - 退出登录会清空 MySQL token 并删除 Redis token，使旧 token 立即失效。
-- `SoftJWTAuth` 用于 Feed 等公开接口：未登录可访问，带合法 token 时返回当前用户相关状态，例如 `is_liked`。
-
-### Feed 流
-
-![Feed 软鉴权_缓存热榜_分页游标](picture/Feed%20软鉴权_缓存热榜_分页游标.png)
-
-Feed 返回结构统一为 `FeedVideoItem`，包含作者信息、视频信息、毫秒时间戳和当前用户是否点赞。
-
-![Feed返回表](picture/Feed返回表.png)
-
-- `/feed/listLatest`：最新流，基于 `latest_time` 游标分页，首页可缓存。
-- `/feed/listByFollowing`：关注流，需要登录。
-- `/feed/listLikesCount`：按点赞数排序，使用 `(likes_count, id)` 复合游标，避免排序不稳定。
-- `/feed/listByPopularity`：热门流，优先读取 Redis ZSET，Redis 不可用时回退 MySQL。
-
-### 点赞和评论
-
-点赞、评论采用“同步写库 + 异步后置任务”的方式：
-
-- 点赞/取消点赞同步写 `likes` 表，并在事务内更新 `videos.likes_count`。
-- 评论发布/删除同步写入或删除评论表。
-- RabbitMQ 只负责异步更新 `popularity`、刷新 Redis ZSET 热榜、删除视频详情缓存等后置任务。
-- 主链路不依赖 MQ 成功，MQ 失败不会导致核心写库失败。
-
-### Redis 缓存和热榜
-
-| 场景 | 类型 | Key | 说明 |
-| --- | --- | --- | --- |
-| token 缓存 | String | `account:<id>` | 鉴权优先查 Redis，miss 后回源 MySQL |
-| Feed 首页缓存 | String | `feed:latest:*` | 最新流首页短 TTL 缓存 |
-| 视频详情缓存 | String | `video:detail:id=<id>` | 详情页缓存，点赞/删除等操作后主动失效 |
-| 限流计数 | String | `feedsystem:ratelimit:*` | 登录/注册按 IP，写操作按账号 |
-| 热榜 | ZSET | `feed:hot:zset` | member 为视频 ID，score 为热度分 |
-
-Redis ZSET 热榜的查询流程：
-
-```text
-/feed/listByPopularity
--> ZREVRANGE feed:hot:zset 取 topN videoID
--> MySQL 回表查询视频详情
--> 按 ZSET 返回顺序重排
--> Redis 无数据时 fallback 到 MySQL popularity 排序
-```
-
-### RabbitMQ Worker
-
-![点赞评论_同步写库_异步热度缓存](picture/点赞评论_同步写库_异步热度缓存.png)
-
-| 队列 | 触发时机 | Worker | 后置动作 |
-| --- | --- | --- | --- |
-| `feedsystem.video.published.queue` | 发布/删除视频 | VideoWorker | 删除 `feed:latest:*` 缓存 |
-| `feedsystem.like.queue` | 点赞/取消点赞 | LikeWorker | 热度 `+1/-1`、更新 ZSET、删除详情缓存 |
-| `feedsystem.comment.queue` | 发评论/删评论 | CommentWorker | 热度 `+2/-2`、更新 ZSET |
-| `feedsystem.social.queue` | 关注/取关 | SocialWorker | 关注关系异步处理 |
+- 登录/注册按 IP 限流，点赞/评论/关注按账号限流，计数存 Redis。
 
 ## 数据库设计
 
-核心表包括：
+核心表：
 
 - `accounts`
 - `videos`
 - `likes`
 - `comments`
 - `socials`
+- `outbox_msgs`
 
 ![表关系](picture/表关系.png)
 
-表结构：
+表结构图：
 
 | 表 | 图 |
 | --- | --- |
@@ -184,9 +225,7 @@ Redis ZSET 热榜的查询流程：
 | 评论 | `/comment/publish`, `/comment/delete`, `/comment/listAll` |
 | 关注 | `/social/follow`, `/social/unfollow`, `/social/getAllFollowers`, `/social/getAllVloggers` |
 
-更完整的请求和响应字段见 [项目设计.md](项目设计.md)。
-
-## 本地开发启动
+## 本地开发
 
 只启动依赖：
 
@@ -216,29 +255,22 @@ npm install
 npm run dev
 ```
 
-前端开发模式下，Vite 会将 `/api` 代理到：
+## 验证
 
-```text
-http://127.0.0.1:8080
+```bash
+cd backend
+GOCACHE=/tmp/feedsystem-go-build-cache go test ./...
 ```
 
-## 项目目录
+Docker 配置校验：
 
-```text
-.
-├── backend/              # Go API + Worker
-├── frontend/             # Vue3 前端
-├── picture/              # 架构图、流程图、表结构图
-├── test/                 # Postman 测试集合
-├── docker-compose.yml    # 一键启动编排
-├── 项目设计.md            # 详细设计与接口说明
-└── README.md
+```bash
+docker compose config
 ```
 
 ## 后续优化方向
 
-- 引入 Outbox Pattern，提高“业务写库 + 消息投递”的可靠性。
-- 热榜支持时间窗口衰减，避免老视频长期占据榜单。
-- 视频文件接入对象存储，例如 MinIO 或云存储。
-- Feed 缓存进一步拆分为“公共视频列表缓存 + 用户态字段补全”。
-- 为核心 service 和 repository 增加单元测试与集成测试。
+- 视频文件接入对象存储，例如 MinIO、OSS、S3，减少本地磁盘依赖。
+- 热榜从当前全局 ZSET 继续升级为分钟窗口滑动热榜。
+- 增加 Outbox 管理接口或告警，用于观察长期 pending 的消息。
+- 为核心 service/repository 增加单元测试和集成测试。

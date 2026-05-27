@@ -2,6 +2,7 @@ package feed
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -35,7 +36,11 @@ func (h *Handler) ListLatest(c *gin.Context) {
 
 	accountID, _ := currentAccountID(c)
 
-	resp, err := h.service.ListLatest(c.Request.Context(), req.Limit, req.LatestTime, accountID)
+	var latestBefore time.Time
+	if req.LatestTime > 0 {
+		latestBefore = time.UnixMilli(req.LatestTime)
+	}
+	resp, err := h.service.ListLatest(c.Request.Context(), req.Limit, latestBefore, accountID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

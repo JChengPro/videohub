@@ -4,7 +4,6 @@ import (
 	"backend/internal/mq"
 	"context"
 	"errors"
-	"log"
 	"strings"
 )
 
@@ -34,24 +33,11 @@ func (s *CommentService) Publish(ctx context.Context, comment *Comment) error {
 		return errors.New("content is too long")
 	}
 
-	// 同步写入 DB，拿到 ID 后立即返回给前端
-	if err := s.repo.Create(ctx, comment); err != nil {
+	// 同步写入 DB，并在同一个事务里写 outbox，后续由 poller 可靠投递 MQ。
+	if err := s.repo.CreateWithOutbox(ctx, comment); err != nil {
 		return err
 	}
 
-	// 异步：热度更新交给 Worker
-	if s.rabbit != nil {
-		event := mq.CommentEvent{
-			EventType: "comment_published",
-			VideoID:   comment.VideoID,
-			AuthorID:  comment.AuthorID,
-		}
-		if err := s.rabbit.DeclareQueue(mq.CommentQueueName); err != nil {
-			log.Printf("declare comment queue failed: %v", err)
-		} else if err := s.rabbit.PublishJSON(ctx, mq.CommentQueueName, event); err != nil {
-			log.Printf("publish comment event failed: %v", err)
-		}
-	}
 	return nil
 }
 
@@ -75,22 +61,9 @@ func (s *CommentService) Delete(ctx context.Context, commentID uint, accountID u
 		return errors.New("unauthorized")
 	}
 
-	// 同步删除
-	if err := s.repo.Delete(ctx, commentID); err != nil {
+	// 同步删除，并在同一个事务里写 outbox，后续由 poller 可靠投递 MQ。
+	if err := s.repo.DeleteWithOutbox(ctx, comment); err != nil {
 		return err
-	}
-
-	// 异步：热度更新交给 Worker
-	if s.rabbit != nil {
-		event := mq.CommentEvent{
-			EventType: "comment_deleted",
-			VideoID:   comment.VideoID,
-		}
-		if err := s.rabbit.DeclareQueue(mq.CommentQueueName); err != nil {
-			log.Printf("declare comment queue failed: %v", err)
-		} else if err := s.rabbit.PublishJSON(ctx, mq.CommentQueueName, event); err != nil {
-			log.Printf("publish comment delete event failed: %v", err)
-		}
 	}
 
 	return nil

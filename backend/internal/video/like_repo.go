@@ -1,6 +1,7 @@
 package video
 
 import (
+	"backend/internal/mq"
 	"context"
 
 	"gorm.io/gorm"
@@ -68,6 +69,29 @@ func (r *LikeRepository) LikeWithTx(ctx context.Context, like *Like) error {
 	})
 }
 
+func (r *LikeRepository) LikeWithTxAndOutbox(ctx context.Context, like *Like) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(like).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&Video{}).Where("id = ?", like.VideoID).
+			UpdateColumn("likes_count", gorm.Expr("GREATEST(likes_count + ?,0)", 1)).Error; err != nil {
+			return err
+		}
+
+		event := mq.LikeEvent{
+			EventType: "like_created",
+			VideoID:   like.VideoID,
+			AccountID: like.AccountID,
+		}
+		msg, err := newOutboxMsg(mq.LikeQueueName, event, event.EventType, like.VideoID, like.AccountID, "")
+		if err != nil {
+			return err
+		}
+		return tx.Create(msg).Error
+	})
+}
+
 func (r *LikeRepository) UnlikeWithTx(ctx context.Context, videoID, accountID uint) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("video_id = ? AND account_id = ?", videoID, accountID).Delete(&Like{}).Error; err != nil {
@@ -78,6 +102,29 @@ func (r *LikeRepository) UnlikeWithTx(ctx context.Context, videoID, accountID ui
 			return err
 		}
 		return nil
+	})
+}
+
+func (r *LikeRepository) UnlikeWithTxAndOutbox(ctx context.Context, videoID, accountID uint) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("video_id = ? AND account_id = ?", videoID, accountID).Delete(&Like{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&Video{}).Where("id = ?", videoID).
+			UpdateColumn("likes_count", gorm.Expr("GREATEST(likes_count + ?,0)", -1)).Error; err != nil {
+			return err
+		}
+
+		event := mq.LikeEvent{
+			EventType: "like_deleted",
+			VideoID:   videoID,
+			AccountID: accountID,
+		}
+		msg, err := newOutboxMsg(mq.LikeQueueName, event, event.EventType, videoID, accountID, "")
+		if err != nil {
+			return err
+		}
+		return tx.Create(msg).Error
 	})
 }
 

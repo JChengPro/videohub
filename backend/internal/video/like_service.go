@@ -4,7 +4,6 @@ import (
 	"backend/internal/mq"
 	"context"
 	"errors"
-	"log"
 )
 
 type LikeService struct {
@@ -30,27 +29,14 @@ func (s *LikeService) Like(ctx context.Context, videoID uint, accountID uint) er
 		return nil
 	}
 
-	// 同步写入 DB
-	if err := s.likeRepo.LikeWithTx(ctx, &Like{
+	// 同步写入 DB，并在同一个事务里写 outbox，后续由 poller 可靠投递 MQ。
+	if err := s.likeRepo.LikeWithTxAndOutbox(ctx, &Like{
 		VideoID:   videoID,
 		AccountID: accountID,
 	}); err != nil {
 		return err
 	}
 
-	// 异步：热度、排行、清缓存交给 Worker
-	if s.rabbit != nil {
-		event := mq.LikeEvent{
-			EventType: "like_created",
-			VideoID:   videoID,
-			AccountID: accountID,
-		}
-		if err := s.rabbit.DeclareQueue(mq.LikeQueueName); err != nil {
-			log.Printf("declare like queue failed: %v", err)
-		} else if err := s.rabbit.PublishJSON(ctx, mq.LikeQueueName, event); err != nil {
-			log.Printf("publish like event failed: %v", err)
-		}
-	}
 	return nil
 }
 
@@ -67,24 +53,11 @@ func (s *LikeService) Unlike(ctx context.Context, videoID, accountID uint) error
 		return nil
 	}
 
-	// 同步写入 DB
-	if err := s.likeRepo.UnlikeWithTx(ctx, videoID, accountID); err != nil {
+	// 同步写入 DB，并在同一个事务里写 outbox，后续由 poller 可靠投递 MQ。
+	if err := s.likeRepo.UnlikeWithTxAndOutbox(ctx, videoID, accountID); err != nil {
 		return err
 	}
 
-	// 异步：热度、排行、清缓存交给 Worker
-	if s.rabbit != nil {
-		event := mq.LikeEvent{
-			EventType: "like_deleted",
-			VideoID:   videoID,
-			AccountID: accountID,
-		}
-		if err := s.rabbit.DeclareQueue(mq.LikeQueueName); err != nil {
-			log.Printf("declare like queue failed: %v", err)
-		} else if err := s.rabbit.PublishJSON(ctx, mq.LikeQueueName, event); err != nil {
-			log.Printf("publish unlike event failed: %v", err)
-		}
-	}
 	return nil
 }
 

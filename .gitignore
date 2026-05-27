@@ -35,6 +35,8 @@ go.work.sum
 # Local codex/workspace artifacts
 .codex
 .codex/
+.claude/
+.agents/
 
 # Renamed backup of the old backend, kept out of the main GitHub repo
 backend_bak/
@@ -45,6 +47,7 @@ docker-compose.study.yml
 # Local rewrite notes
 重写后端记录.md
 面试准备-Go开发实习生.md
+原版后端未实现功能对比.md
 *:Zone.Identifier
 
 # RabbitMQ local data

@@ -3,10 +3,11 @@ package mq
 const VideoPublishedQueueName = "feedsystem.video.published.queue"
 
 type VideoPublishedEvent struct {
-	EventType string `json:"event_type"`
-	VideoID   uint   `json:"video_id"`
-	AuthorID  uint   `json:"author_id"`
-	Title     string `json:"title"`
+	EventType  string `json:"event_type"`
+	VideoID    uint   `json:"video_id"`
+	AuthorID   uint   `json:"author_id"`
+	Title      string `json:"title"`
+	CreateTime int64  `json:"create_time"`
 }
 
 const LikeQueueName = "feedsystem.like.queue"

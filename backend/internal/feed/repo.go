@@ -2,6 +2,7 @@ package feed
 
 import (
 	"context"
+	"time"
 
 	"backend/internal/video"
 
@@ -17,26 +18,26 @@ func NewRepository(db *gorm.DB) *Repository {
 }
 
 // 不是传统的分页逻辑，而是给我某个时间点之前的最新 N 条数据
-func (r *Repository) ListLatest(ctx context.Context, limit int, before int64) ([]video.Video, error) {
-	var videos []video.Video
+func (r *Repository) ListLatest(ctx context.Context, limit int, latestBefore time.Time) ([]*video.Video, error) {
+	var videos []*video.Video
 
 	query := r.db.WithContext(ctx).
-		Order("create_time desc").
-		Limit(limit)
+		Model(&video.Video{}).
+		Order("create_time DESC")
 
-	if before > 0 {
-		query = query.Where("create_time < FROM_UNIXTIME(? / 1000)", before)
+	if !latestBefore.IsZero() {
+		query = query.Where("create_time < ?", latestBefore)
 	}
 
-	if err := query.Find(&videos).Error; err != nil {
+	if err := query.Limit(limit).Find(&videos).Error; err != nil {
 		return nil, err
 	}
 
 	return videos, nil
 }
 
-func (r *Repository) ListFollowing(ctx context.Context, accountID uint, limit int, before int64) ([]video.Video, error) {
-	var videos []video.Video
+func (r *Repository) ListFollowing(ctx context.Context, accountID uint, limit int, before int64) ([]*video.Video, error) {
+	var videos []*video.Video
 
 	query := r.db.WithContext(ctx).
 		Model(&video.Video{}).
@@ -56,8 +57,8 @@ func (r *Repository) ListFollowing(ctx context.Context, accountID uint, limit in
 	return videos, nil
 }
 
-func (r *Repository) ListHot(ctx context.Context, limit int) ([]video.Video, error) {
-	var videos []video.Video
+func (r *Repository) ListHot(ctx context.Context, limit int) ([]*video.Video, error) {
+	var videos []*video.Video
 	if err := r.db.WithContext(ctx).Order("popularity desc, create_time desc, id desc").Limit(limit).
 		Find(&videos).Error; err != nil {
 		return nil, err
@@ -65,21 +66,24 @@ func (r *Repository) ListHot(ctx context.Context, limit int) ([]video.Video, err
 	return videos, nil
 }
 
-func (r *Repository) GetByIDs(ctx context.Context, ids []uint) ([]video.Video, error) {
-	var videos []video.Video
+func (r *Repository) GetByIDs(ctx context.Context, ids []uint) ([]*video.Video, error) {
+	var videos []*video.Video
 	if len(ids) == 0 {
 		return videos, nil
 	}
+
 	if err := r.db.WithContext(ctx).
+		Model(&video.Video{}).
 		Where("id IN ?", ids).
 		Find(&videos).Error; err != nil {
 		return nil, err
 	}
+
 	return videos, nil
 }
 
-func (r *Repository) ListByLikesCount(ctx context.Context, limit int, likesCountBefore int64, idBefore uint) ([]video.Video, error) {
-	var videos []video.Video
+func (r *Repository) ListByLikesCount(ctx context.Context, limit int, likesCountBefore int64, idBefore uint) ([]*video.Video, error) {
+	var videos []*video.Video
 	query := r.db.WithContext(ctx).Order("likes_count desc, id desc").Limit(limit)
 	if likesCountBefore > 0 || idBefore > 0 {
 		query = query.Where("(likes_count, id) < (?, ?)", likesCountBefore, idBefore)

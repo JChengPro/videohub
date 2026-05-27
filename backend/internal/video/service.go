@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"time"
@@ -50,26 +49,8 @@ func (s *Service) Publish(ctx context.Context, video *Video) error {
 		return errors.New("cover_url is required")
 	}
 
-	if err := s.repo.Create(ctx, video); err != nil {
-		return err
-	}
-	if s.rabbit != nil {
-		event := mq.VideoPublishedEvent{
-			EventType: "video_published",
-			VideoID:   video.ID,
-			AuthorID:  video.AuthorID,
-			Title:     video.Title,
-		}
-		if err := s.rabbit.DeclareQueue(mq.VideoPublishedQueueName); err != nil {
-			log.Printf("declare video published queue failed: %v", err)
-			return nil
-		}
-		if err := s.rabbit.PublishJSON(ctx, mq.VideoPublishedQueueName, event); err != nil {
-			log.Printf("publish video event failed: %v", err)
-			return nil
-		}
-	}
-	return nil
+	//使用outbox解决数据库和mq的双写一致性问题
+	return s.repo.CreateWithOutbox(ctx, video)
 }
 
 func (s *Service) Detail(ctx context.Context, id uint) (*Video, error) {
@@ -147,7 +128,7 @@ func (s *Service) Delete(ctx context.Context, videoID uint, accountID uint) erro
 		return errors.New("unauthorized")
 	}
 
-	if err := s.repo.DeleteByID(ctx, videoID); err != nil {
+	if err := s.repo.DeleteWithOutbox(ctx, video); err != nil {
 		return err
 	}
 
@@ -156,23 +137,6 @@ func (s *Service) Delete(ctx context.Context, videoID uint, accountID uint) erro
 	}
 	if err := s.deleteHotRanking(ctx, videoID); err != nil {
 		return err
-	}
-
-	if s.rabbit != nil {
-		event := mq.VideoPublishedEvent{
-			EventType: "video_deleted",
-			VideoID:   video.ID,
-			AuthorID:  video.AuthorID,
-			Title:     video.Title,
-		}
-		if err := s.rabbit.DeclareQueue(mq.VideoPublishedQueueName); err != nil {
-			log.Printf("declare video queue failed: %v", err)
-			return nil
-		}
-		if err := s.rabbit.PublishJSON(ctx, mq.VideoPublishedQueueName, event); err != nil {
-			log.Printf("publish video deleted event failed: %v", err)
-			return nil
-		}
 	}
 
 	return nil

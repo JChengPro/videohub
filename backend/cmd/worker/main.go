@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"time"
 )
 
 func main() {
@@ -52,6 +53,10 @@ func main() {
 		log.Fatalf("connect mysql failed: %v", err)
 	}
 	videoRepo := video.NewRepository(sqlDB)
+	// worker 启动后，同时启动 outbox poller。
+	//poller 每 2 秒扫描一次 outbox_msgs 表。
+	//如果发现 pending 消息，就发到 RabbitMQ。
+	worker.StartOutboxPoller(context.Background(), videoRepo, rabbit, 2*time.Second)
 
 	likeWorker := worker.NewLikeWorker(videoRepo, redisClient)
 

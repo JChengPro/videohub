@@ -93,6 +93,21 @@ func (r *RabbitMQ) Publish(ctx context.Context, queueName string, body string) e
 	)
 }
 
+func (r *RabbitMQ) PublishJSONBody(ctx context.Context, queueName string, body string) error {
+	return r.ch.PublishWithContext(
+		ctx,
+		"",
+		queueName,
+		false,
+		false,
+		amqp.Publishing{
+			ContentType:  "application/json",
+			DeliveryMode: amqp.Persistent,
+			Body:         []byte(body),
+		},
+	)
+}
+
 func (r *RabbitMQ) PublishJSON(ctx context.Context, queueName string, payload any) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
