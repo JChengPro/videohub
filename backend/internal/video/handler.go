@@ -4,10 +4,12 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -252,4 +254,81 @@ func (h *Handler) Delete(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "video deleted",
 	})
+}
+
+// 分片上传-接受一片，存临时磁盘
+func (h *Handler) UploadChunk(c *gin.Context) {
+	fileID := c.GetHeader("X-File-ID")
+	chunkIndex, _ := strconv.Atoi(c.GetHeader("X-Chunk-Index"))
+
+	if fileID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "X-File-ID header required"})
+		return
+	}
+
+	// 读 Body 原始字节——前端发的是纯二进制 blob，不是 JSON
+	data, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 存到 .run/uploads/chunks/{fileID}/{chunkIndex}
+	dir := filepath.Join(".run", "uploads", "chunks", fileID)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	chunkPath := filepath.Join(dir, fmt.Sprintf("%d", chunkIndex))
+	if err := os.WriteFile(chunkPath, data, 0644); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"chunk": chunkIndex})
+}
+
+// 拼接视频
+func (h *Handler) MergeChunks(c *gin.Context) {
+	var req MergeChunksRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	accountID, ok := currentAccountID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid accountID"})
+		return
+	}
+
+	playURL, err := h.service.MergeChunks(req.FileID, accountID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"play_url": playURL})
+}
+
+// ChunkStatus — 查已传片
+func (h *Handler) ChunkStatus(c *gin.Context) {
+	var req ChunkStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	dir := filepath.Join(".run", "uploads", "chunks", req.FileID)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		c.JSON(http.StatusOK, ChunkStatusResponse{Uploaded: []int{}})
+		return
+	}
+
+	uploaded := make([]int, 0, len(entries))
+	for _, e := range entries {
+		if idx, err := strconv.Atoi(e.Name()); err == nil {
+			uploaded = append(uploaded, idx)
+		}
+	}
+	c.JSON(http.StatusOK, ChunkStatusResponse{Uploaded: uploaded})
 }

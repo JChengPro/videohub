@@ -158,13 +158,13 @@ watch(
   <AppShell>
     <div class="grid two">
       <div class="card">
-        <p class="title">Feed</p>
-        <p class="subtle">`/feed/listLatest` 与 `/feed/listLikesCount` 支持匿名（可选 JWT）；`/feed/listByFollowing` 需要 JWT。</p>
+        <p class="title">视频流</p>
+        <p class="subtle">最新、热度和关注三个列表都可以在这里调试；关注列表需要登录。</p>
 
         <div class="card" style="margin-top: 12px">
           <div class="row" style="justify-content: space-between">
             <div>
-              <p class="title">最新流（listLatest）</p>
+              <p class="title">最新视频</p>
               <div class="subtle">limit：{{ latest.limit }} · next_time：{{ latest.next_time }} · has_more：{{ latest.has_more }}</div>
             </div>
             <div class="row">
@@ -190,7 +190,7 @@ watch(
         <div class="card" style="margin-top: 12px">
           <div class="row" style="justify-content: space-between">
             <div>
-              <p class="title">点赞数流（listLikesCount）</p>
+              <p class="title">点赞排序</p>
               <div class="subtle">
                 limit：{{ likesCount.limit }} · next=(likes={{ likesCount.next_likes_count_before }}, id={{ likesCount.next_id_before }})
                 · has_more：{{ likesCount.has_more }}
@@ -221,7 +221,7 @@ watch(
         <div class="card" style="margin-top: 12px">
           <div class="row" style="justify-content: space-between">
             <div>
-              <p class="title">关注流（listByFollowing，JWT）</p>
+              <p class="title">关注更新</p>
               <div class="subtle">
                 limit：{{ following.limit }} · next_time：{{ following.next_time }} · has_more：{{ following.has_more }}
               </div>

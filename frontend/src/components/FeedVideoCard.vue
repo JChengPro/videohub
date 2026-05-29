@@ -17,93 +17,163 @@ function onToggle() {
 </script>
 
 <template>
-  <div class="feed-card">
-    <div class="cover">
+  <div class="video-card">
+    <RouterLink class="cover" :to="`/video/${item.id}`">
       <img :src="item.cover_url" :alt="item.title" loading="lazy" />
-    </div>
-    <div class="content">
-      <div class="row" style="justify-content: space-between">
-        <div>
-          <div class="title">
-            <RouterLink :to="`/video/${item.id}`">{{ item.title }}</RouterLink>
-          </div>
-          <div class="subtle">
-            作者：{{ item.author.username }} (#{{ item.author.id }}) · 创建时间：{{ new Date(item.create_time * 1000).toLocaleString() }}
-          </div>
-        </div>
-        <div class="row">
-          <span class="pill">❤️ {{ item.likes_count }}</span>
-          <button
-            v-if="canLike"
-            class="primary"
-            type="button"
-            :disabled="busy"
-            @click="onToggle"
-            :title="item.is_liked ? '取消点赞' : '点赞'"
-          >
-            {{ item.is_liked ? '已赞' : '点赞' }}
-          </button>
-        </div>
+      <div class="play-icon">
+        <svg width="36" height="36" viewBox="0 0 36 36" fill="none"><circle cx="18" cy="18" r="18" fill="rgba(0,0,0,0.5)"/><polygon points="15,11 26,18 15,25" fill="#fff"/></svg>
       </div>
-      <div v-if="item.description" class="muted" style="margin-top: 8px">{{ item.description }}</div>
-      <div class="row" style="margin-top: 10px">
-        <a class="pill" :href="item.play_url" target="_blank" rel="noreferrer">播放地址</a>
-        <RouterLink class="pill" :to="`/video/${item.id}`">查看详情 / 评论</RouterLink>
+    </RouterLink>
+    <div class="info">
+      <RouterLink class="title" :to="`/video/${item.id}`">{{ item.title }}</RouterLink>
+      <RouterLink class="author" :to="`/user/${item.author.id}`">@{{ item.author.username }}</RouterLink>
+      <div class="meta">
+        <span>{{ item.likes_count }} 赞</span>
+        <span>{{ new Date(item.create_time).toLocaleDateString() }}</span>
+      </div>
+      <div class="actions">
+        <button
+          v-if="canLike"
+          class="like-btn"
+          :class="{ liked: item.is_liked }"
+          :disabled="busy"
+          @click="onToggle"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" :fill="item.is_liked ? '#fe2c55' : 'none'" :stroke="item.is_liked ? '#fe2c55' : '#aaa'" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+          {{ item.is_liked ? '已赞' : '点赞' }}
+        </button>
+        <RouterLink class="action-link" :to="`/video/${item.id}`">详情</RouterLink>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.feed-card {
+.video-card {
   display: grid;
-  grid-template-columns: 230px minmax(0, 1fr);
-  gap: 0;
-  border: 1px solid rgba(255, 255, 255, 0.13);
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.045)),
-    rgba(255, 255, 255, 0.06);
-  border-radius: 22px;
+  grid-template-columns: 200px 1fr;
+  gap: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
   overflow: hidden;
-  box-shadow: 0 20px 58px rgba(0, 0, 0, 0.26);
-  transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+  transition: border-color 150ms ease;
 }
 
-.feed-card:hover {
-  transform: translateY(-2px);
-  border-color: rgba(37, 244, 238, 0.24);
-  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.34);
+.video-card:hover {
+  border-color: var(--border-hover);
 }
 
 .cover {
-  background: rgba(0, 0, 0, 0.25);
-  aspect-ratio: 10/13;
   position: relative;
+  aspect-ratio: 9/13;
   overflow: hidden;
-}
-
-.cover::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.32), transparent 56%);
+  background: #1a1a1a;
 }
 
 .cover img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  display: block;
 }
 
-.content {
-  padding: 16px 16px 18px;
-  min-width: 0;
+.play-icon {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  transition: opacity 150ms ease;
 }
 
-@media (max-width: 900px) {
-  .feed-card {
+.cover:hover .play-icon {
+  opacity: 1;
+}
+
+.info {
+  padding: 14px 14px 14px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.title {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.author {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.author:hover {
+  color: var(--accent);
+}
+
+.meta {
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.actions {
+  margin-top: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.like-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(255,255,255,0.06);
+  color: var(--text-secondary);
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  transition: background 120ms;
+}
+
+.like-btn:hover {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.like-btn.liked {
+  color: var(--accent);
+}
+
+.action-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.action-link:hover {
+  background: rgba(255,255,255,0.1);
+  color: var(--text);
+}
+
+@media (max-width: 600px) {
+  .video-card {
     grid-template-columns: 1fr;
+  }
+  .cover {
+    aspect-ratio: 16/9;
+  }
+  .info {
+    padding: 0 14px 14px;
   }
 }
 </style>

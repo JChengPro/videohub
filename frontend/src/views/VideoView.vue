@@ -18,6 +18,7 @@ const stage = ref('')
 const published = ref<Video | null>(null)
 const maxVideoBytes = 200 * 1024 * 1024
 const maxCoverBytes = 10 * 1024 * 1024
+const videoProgress = ref(0)
 
 const videoInput = ref<HTMLInputElement | null>(null)
 const coverInput = ref<HTMLInputElement | null>(null)
@@ -144,7 +145,8 @@ async function onPublish() {
     const coverRes = await videoApi.uploadCover(publishForm.cover!)
 
     stage.value = '上传视频'
-    const videoRes = await videoApi.uploadVideo(publishForm.video!)
+    videoProgress.value = 0
+    const videoRes = await videoApi.uploadVideoSmart(publishForm.video!, (pct) => { videoProgress.value = pct })
 
     const coverUrl = coverRes.url || coverRes.cover_url || ''
     const playUrl = videoRes.url || videoRes.play_url || ''
@@ -179,22 +181,28 @@ async function onPublish() {
       <div class="card publish-card">
         <div class="row" style="justify-content: space-between; align-items: baseline">
           <p class="title" style="margin: 0">发布视频</p>
-          <div v-if="busy" class="pill">进行中：{{ stage || '…' }}</div>
+          <div v-if="busy">
+            <div class="pill" style="margin-bottom:6px">进行中：{{ stage || '…' }}</div>
+            <div v-if="videoProgress > 0" class="progress-bar">
+              <div class="progress-fill" :style="{ width: videoProgress + '%' }" />
+              <span class="progress-text">{{ videoProgress }}%</span>
+            </div>
+          </div>
         </div>
-        <p class="subtle" style="margin-top: 10px">选择视频文件与封面图片，上传到本机后自动生成 URL，再写入 `/video/publish`。</p>
+        <p class="subtle" style="margin-top: 10px">选择视频和封面，发布后会出现在 VideoHub 视频流中。</p>
 
         <div class="grid form-grid" style="margin-top: 16px">
           <div>
-            <label>title</label>
+            <label>标题</label>
             <input v-model.trim="publishForm.title" class="big-input" :disabled="busy" />
           </div>
           <div>
-            <label>description</label>
+            <label>简介</label>
             <textarea v-model.trim="publishForm.description" class="big-input" :disabled="busy" />
           </div>
           <div class="grid two">
             <div>
-              <label>video (.mp4)</label>
+              <label>视频文件 (.mp4)</label>
               <input ref="videoInput" class="file-native" type="file" accept="video/mp4" :disabled="busy" @change="pickVideo" />
               <div class="file-box">
                 <button type="button" :disabled="busy" @click="openVideoPicker">选择视频</button>
@@ -208,7 +216,7 @@ async function onPublish() {
               </div>
             </div>
             <div>
-              <label>cover (jpg/png/webp)</label>
+              <label>封面图片 (jpg/png/webp)</label>
               <input
                 ref="coverInput"
                 class="file-native"
@@ -309,9 +317,9 @@ async function onPublish() {
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.06);
-  border-radius: 14px;
+  border: 1px solid rgba(170, 226, 211, 0.12);
+  background: rgba(18, 41, 38, 0.72);
+  border-radius: 16px;
   min-height: 46px;
 }
 
@@ -327,11 +335,11 @@ async function onPublish() {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.88);
+  color: var(--text);
 }
 
 .muted {
-  color: rgba(255, 255, 255, 0.55);
+  color: #8c9a95;
 }
 
 .big-input {
@@ -350,9 +358,9 @@ async function onPublish() {
 }
 
 .preview-card {
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 16px;
+  border: 1px solid rgba(170, 226, 211, 0.12);
+  background: rgba(18, 41, 38, 0.72);
+  border-radius: 20px;
   padding: 12px;
   display: grid;
   gap: 10px;
@@ -363,14 +371,40 @@ async function onPublish() {
   aspect-ratio: 9/12;
   object-fit: cover;
   border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(170, 226, 211, 0.12);
+  background: rgba(217, 246, 236, 0.62);
 }
 
 .video {
   width: 100%;
   border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(170, 226, 211, 0.12);
+  background: rgba(217, 246, 236, 0.62);
+}
+
+.progress-bar {
+  width: 100%;
+  height: 22px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  overflow: hidden;
+  position: relative;
+}
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-cyan));
+  border-radius: 11px;
+  transition: width 150ms ease;
+}
+.progress-text {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.3);
 }
 </style>

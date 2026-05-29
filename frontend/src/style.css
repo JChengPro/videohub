@@ -1,137 +1,111 @@
 :root {
   color-scheme: dark;
-  --bg: #07080d;
-  --bg-deep: #030407;
-  --panel: rgba(255, 255, 255, 0.075);
-  --panel-2: rgba(255, 255, 255, 0.13);
-  --glass: rgba(9, 11, 18, 0.66);
-  --text: rgba(255, 255, 255, 0.94);
-  --muted: rgba(237, 242, 247, 0.66);
-  --border: rgba(255, 255, 255, 0.13);
-  --primary: #fe2c55;
-  --primary-2: #25f4ee;
-  --amber: #f8b84e;
-  --danger: #fe2c55;
-  --ok: #22c55e;
-  --shadow-lg: 0 28px 90px rgba(0, 0, 0, 0.48);
-  --shadow-md: 0 18px 52px rgba(0, 0, 0, 0.34);
-  font-family: 'Avenir Next', 'DIN Alternate', 'PingFang SC', 'Microsoft YaHei UI', ui-sans-serif, system-ui, sans-serif;
+  --bg: #000000;
+  --bg-card: #161616;
+  --bg-hover: #222222;
+  --bg-input: #1a1a1a;
+  --text: #ffffff;
+  --text-secondary: #a0a0a0;
+  --text-muted: #6a6a6a;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-hover: rgba(255, 255, 255, 0.16);
+  --accent: #fe2c55;
+  --accent-hover: #ff405e;
+  --accent-dim: rgba(254, 44, 85, 0.12);
+  --accent-cyan: #20d5ec;
+  --danger: #ff4757;
+  --ok: #2ed573;
+  --radius: 10px;
+  --radius-lg: 14px;
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
   line-height: 1.5;
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
 }
 
 *,
 *::before,
 *::after {
   box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
-/* Hide scrollbars globally (still scrollable). */
 * {
-  scrollbar-width: none; /* Firefox */
-  -ms-overflow-style: none; /* IE/Edge legacy */
+  scrollbar-width: thin;
+  scrollbar-color: #2a2a2a transparent;
 }
 
 *::-webkit-scrollbar {
-  width: 0;
-  height: 0;
+  width: 6px;
 }
 
-html,
-body {
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #2a2a2a;
+  border-radius: 3px;
+}
+
+html, body {
   height: 100%;
 }
 
 body {
-  margin: 0;
-  background:
-    radial-gradient(900px 620px at 4% -10%, rgba(254, 44, 85, 0.22), transparent 62%),
-    radial-gradient(800px 620px at 92% 6%, rgba(37, 244, 238, 0.16), transparent 58%),
-    radial-gradient(860px 680px at 70% 110%, rgba(248, 184, 78, 0.08), transparent 60%),
-    linear-gradient(135deg, var(--bg-deep), var(--bg) 42%, #11131b);
   color: var(--text);
+  background: var(--bg);
   overflow: hidden;
 }
 
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: -1;
-  opacity: 0.35;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
-  background-size: 44px 44px;
-  mask-image: radial-gradient(circle at 50% 20%, black, transparent 72%);
-}
-
 a {
-  color: inherit;
+  color: var(--text);
   text-decoration: none;
 }
 
 a:hover {
-  text-decoration: underline;
+  color: var(--accent);
 }
 
 .container {
   max-width: 1100px;
   margin: 0 auto;
-  padding: 24px 16px 56px;
+  padding: 20px 24px 60px;
 }
 
+/* ---- card ---- */
 .card {
-  position: relative;
-  background:
-    linear-gradient(160deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.045) 55%),
-    var(--panel);
+  background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 22px;
-  padding: 18px;
-  backdrop-filter: blur(18px) saturate(130%);
-  box-shadow: var(--shadow-md);
-  overflow: hidden;
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  transition: border-color 150ms ease;
 }
 
-.card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  border-radius: inherit;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.16), transparent 34%, rgba(255, 255, 255, 0.04));
-  opacity: 0.65;
+.card:hover {
+  border-color: var(--border-hover);
 }
 
 .card + .card {
-  margin-top: 14px;
+  margin-top: 12px;
 }
 
+/* ---- grid ---- */
 .grid {
   display: grid;
-  gap: 12px;
+  gap: 16px;
 }
 
 .grid.two {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.grid.three {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
 }
 
 @media (max-width: 900px) {
-  .grid.two,
-  .grid.three {
+  .grid.two {
     grid-template-columns: 1fr;
   }
 }
 
+/* ---- row ---- */
 .row {
   display: flex;
   gap: 10px;
@@ -139,131 +113,128 @@ a:hover {
   align-items: center;
 }
 
+/* ---- text ---- */
 .muted {
-  color: var(--muted);
+  color: var(--text-secondary);
 }
 
 .title {
-  font-size: 20px;
-  font-weight: 900;
-  letter-spacing: 0.01em;
-  margin: 0 0 6px;
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0 0 4px;
 }
 
 .subtle {
   font-size: 13px;
-  color: var(--muted);
-  letter-spacing: 0.01em;
+  color: var(--text-secondary);
 }
 
+/* ---- form ---- */
 label {
   font-size: 13px;
-  color: var(--muted);
-  display: inline-block;
-  margin-bottom: 6px;
+  color: var(--text-secondary);
+  display: block;
+  margin-bottom: 4px;
 }
 
 input,
 textarea,
 select {
   width: 100%;
-  background: rgba(255, 255, 255, 0.075);
+  background: var(--bg-input);
   border: 1px solid var(--border);
-  border-radius: 15px;
+  border-radius: var(--radius);
   color: var(--text);
-  padding: 11px 13px;
+  padding: 10px 12px;
   outline: none;
-  transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+  font-size: 14px;
+  transition: border-color 140ms ease;
 }
 
 textarea {
-  min-height: 88px;
+  min-height: 80px;
   resize: vertical;
 }
 
 input:focus,
 textarea:focus,
 select:focus {
-  background: rgba(255, 255, 255, 0.105);
-  border-color: rgba(37, 244, 238, 0.58);
-  box-shadow: 0 0 0 4px rgba(37, 244, 238, 0.13);
+  border-color: var(--accent);
 }
 
+/* ---- button ---- */
 button {
   appearance: none;
-  border: 1px solid var(--border);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.065));
+  border: none;
+  background: var(--bg-hover);
   color: var(--text);
-  border-radius: 14px;
-  padding: 10px 15px;
+  border-radius: var(--radius);
+  padding: 9px 16px;
+  font-size: 14px;
   cursor: pointer;
-  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  transition: background 140ms ease, opacity 140ms ease;
 }
 
 button:hover {
-  transform: translateY(-1px);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.17), rgba(255, 255, 255, 0.08));
+  background: #333;
 }
 
 button.primary {
-  border-color: rgba(254, 44, 85, 0.55);
-  background: linear-gradient(135deg, rgba(254, 44, 85, 0.9), rgba(255, 112, 67, 0.72));
-  box-shadow: 0 18px 42px rgba(254, 44, 85, 0.22);
+  background: var(--accent);
+  color: #fff;
 }
 
 button.primary:hover {
-  background: linear-gradient(135deg, rgba(255, 66, 100, 0.96), rgba(255, 135, 67, 0.82));
+  background: var(--accent-hover);
 }
 
 button.danger {
-  border-color: rgba(255, 77, 109, 0.65);
-  background: rgba(255, 77, 109, 0.18);
-}
-
-button.danger:hover {
-  background: rgba(255, 77, 109, 0.26);
+  background: var(--danger);
+  color: #fff;
 }
 
 button:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---- pill ---- */
 .pill {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
+  gap: 6px;
+  padding: 5px 10px;
   border-radius: 999px;
-  border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.075);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
   font-size: 13px;
-  backdrop-filter: blur(12px);
 }
 
 .pill.ok {
-  border-color: rgba(34, 197, 94, 0.5);
-  background: rgba(34, 197, 94, 0.12);
+  background: rgba(46, 213, 115, 0.12);
+  color: var(--ok);
 }
 
-.pill.bad {
-  border-color: rgba(255, 77, 109, 0.55);
-  background: rgba(255, 77, 109, 0.12);
-}
-
+/* ---- mono / pre ---- */
 .mono {
-  font-family: 'SF Mono', 'Cascadia Code', ui-monospace, Menlo, Monaco, Consolas, monospace;
+  font-family: 'SF Mono', 'Cascadia Code', ui-monospace, monospace;
 }
 
 .pre {
   white-space: pre-wrap;
   word-break: break-word;
   font-size: 13px;
-  line-height: 1.45;
-  background: rgba(0, 0, 0, 0.25);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   padding: 12px;
-  margin: 0;
+  color: var(--text);
 }

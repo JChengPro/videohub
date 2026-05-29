@@ -368,12 +368,20 @@ onBeforeUnmount(() => {
 
           <div class="actions">
             <button class="act" type="button" :disabled="state.busy" @click.stop="toggleLike">
-              <span class="icon" :class="{ liked: !!state.isLiked }">♥</span>
+              <span class="icon" :class="{ liked: !!state.isLiked }" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M12 21s-7.2-4.7-9.4-9.2C.9 8.2 2.8 4.5 6.6 4.5c2 0 3.5 1 4.4 2.3.9-1.3 2.4-2.3 4.4-2.3 3.8 0 5.7 3.7 4 7.3C19.2 16.3 12 21 12 21Z" />
+                </svg>
+              </span>
               <span class="count">{{ state.video.likes_count }}</span>
             </button>
 
             <button class="act" type="button" @click.stop="openComments">
-              <span class="icon">💬</span>
+              <span class="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M5 5.5A3.5 3.5 0 0 1 8.5 2h7A3.5 3.5 0 0 1 19 5.5v5A3.5 3.5 0 0 1 15.5 14H11l-5.2 4.1A.5.5 0 0 1 5 17.7V5.5Z" />
+                </svg>
+              </span>
               <span class="count">评论</span>
             </button>
 
@@ -384,17 +392,30 @@ onBeforeUnmount(() => {
               :disabled="state.busy"
               @click.stop="toggleFollow"
             >
-              <span class="icon">＋</span>
+              <span class="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M11 5a1 1 0 1 1 2 0v6h6a1 1 0 1 1 0 2h-6v6a1 1 0 1 1-2 0v-6H5a1 1 0 1 1 0-2h6V5Z" />
+                </svg>
+              </span>
               <span class="count">{{ social.isFollowing(state.video.author_id) ? '已关注' : '关注' }}</span>
             </button>
 
             <button class="act" type="button" @click.stop="share">
-              <span class="icon">↗</span>
+              <span class="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M14 4h5a1 1 0 0 1 1 1v5a1 1 0 1 1-2 0V7.4l-8.3 8.3a1 1 0 0 1-1.4-1.4L16.6 6H14a1 1 0 1 1 0-2Z" />
+                  <path d="M5 6a2 2 0 0 1 2-2h3a1 1 0 1 1 0 2H7v11h11v-3a1 1 0 1 1 2 0v3a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6Z" />
+                </svg>
+              </span>
               <span class="count">分享</span>
             </button>
 
             <button v-if="isOwner" class="act act-danger" type="button" :disabled="state.busy" @click.stop="deleteVideo">
-              <span class="icon">删</span>
+              <span class="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M9 3h6a1 1 0 0 1 1 1v1h4a1 1 0 1 1 0 2h-1v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7H4a1 1 0 1 1 0-2h4V4a1 1 0 0 1 1-1Zm1 2h4V5h-4v0Zm-1 5a1 1 0 1 0-2 0v7a1 1 0 1 0 2 0v-7Zm4 0a1 1 0 1 0-2 0v7a1 1 0 1 0 2 0v-7Zm4 0a1 1 0 1 0-2 0v7a1 1 0 1 0 2 0v-7Z" />
+                </svg>
+              </span>
               <span class="count">删除</span>
             </button>
           </div>
@@ -654,9 +675,19 @@ onBeforeUnmount(() => {
 }
 
 .icon {
-  font-size: 20px;
-  line-height: 1;
+  width: 22px;
+  height: 22px;
   opacity: 0.92;
+  display: grid;
+  place-items: center;
+  color: currentColor;
+}
+
+.icon svg {
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+  display: block;
 }
 
 .icon.liked {

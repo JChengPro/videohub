@@ -310,7 +310,7 @@ watch(
                 <img class="video-cover" :src="v.cover_url" :alt="v.title" loading="lazy" />
                 <div class="video-meta">
                   <div class="video-title">{{ v.title }}</div>
-                  <div class="video-sub subtle">❤️ {{ v.likes_count }} · {{ new Date(v.create_time).toLocaleDateString() }}</div>
+                  <div class="video-sub subtle">喜欢 {{ v.likes_count }} · {{ new Date(v.create_time).toLocaleDateString() }}</div>
                 </div>
               </button>
               <button
@@ -334,7 +334,7 @@ watch(
               <img class="video-cover" :src="v.cover_url" :alt="v.title" loading="lazy" />
               <div class="video-meta">
                 <div class="video-title">{{ v.title }}</div>
-                <div class="video-sub subtle">❤️ {{ v.likes_count }} · {{ new Date(v.create_time).toLocaleDateString() }}</div>
+                <div class="video-sub subtle">喜欢 {{ v.likes_count }} · {{ new Date(v.create_time).toLocaleDateString() }}</div>
               </div>
             </button>
           </div>

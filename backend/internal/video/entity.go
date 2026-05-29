@@ -52,3 +52,18 @@ type ListByAuthorRequest struct {
 type DeleteRequest struct {
 	ID uint `json:"id"`
 }
+
+// 给前端查询哪些片已经上传
+type ChunkStatusRequest struct {
+	FileID string `json:"file_id"`
+}
+
+// 返回已上传的片号列表，比如 [0,1,2,5]表示0 1 2 5号片已经上传
+type ChunkStatusResponse struct {
+	Uploaded []int `json:"uploaded"`
+}
+
+// 前端合并分片请求：传 file_id，后端按片号顺序拼成完整视频文件
+type MergeChunksRequest struct {
+	FileID string `json:"file_id"`
+}

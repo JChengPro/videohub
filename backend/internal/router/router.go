@@ -68,6 +68,11 @@ func New(db *gorm.DB, redisClient *cache.Client, rabbit *mq.RabbitMQ) *gin.Engin
 		protectedVideoGroup.POST("/uploadVideo", videoHandler.UploadVideo)
 		protectedVideoGroup.POST("/publish", videoHandler.Publish)
 		protectedVideoGroup.POST("/delete", videoHandler.Delete)
+
+		//分片传输路由
+		protectedVideoGroup.POST("/uploadChunk", videoHandler.UploadChunk)
+		protectedVideoGroup.POST("/chunkStatus", videoHandler.ChunkStatus)
+		protectedVideoGroup.POST("/mergeChunks", videoHandler.MergeChunks)
 	}
 	likeRepo := video.NewLikeRepository(db)
 

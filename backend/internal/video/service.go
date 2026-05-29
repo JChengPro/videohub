@@ -7,6 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -148,4 +151,53 @@ func (s *Service) deleteHotRanking(ctx context.Context, videoID uint) error {
 		return nil
 	}
 	return s.cache.ZRem(ctx, "feed:hot:zset", videoID)
+}
+
+// 把临时目录下的分片按片号顺序拼成完整视频文件，返回 playURL
+func (s *Service) MergeChunks(fileID string, accountID uint) (string, error) {
+	//1.找的临时目录的路径
+	chunkDir := filepath.Join(".run", "uploads", "chunks", fileID)
+	//2.数一下有多少片
+	entries, err := os.ReadDir(chunkDir)
+	if err != nil {
+		return "", fmt.Errorf("chunks not found: %w", err)
+	}
+	totalChunks := len(entries)
+
+	//3.构建最终文件路径，和UploadVideo一样：videos/用户ID/日期/随机名.mp4
+	data := time.Now().Format("20060102")
+	relDir := filepath.Join("videos", fmt.Sprintf("%d", accountID), data)
+	absDir := filepath.Join(".run", "uploads", relDir)
+	if err := os.MkdirAll(absDir, 0755); err != nil {
+		return "", fmt.Errorf("create dir failed: %w", err)
+	}
+	filename := randHex(16) + ".mp4"
+	destPath := filepath.Join(absDir, filename)
+
+	//创建最终文件
+	out, err := os.Create(destPath)
+	if err != nil {
+		return "", fmt.Errorf("create file failed: %w", err)
+	}
+	defer out.Close()
+
+	//按顺序逐片追加写入
+	for i := 0; i < totalChunks; i++ {
+		chunkPath := filepath.Join(chunkDir, fmt.Sprintf("%d", i))
+		data, err := os.ReadFile(chunkPath)
+		if err != nil {
+			return "", fmt.Errorf("chunk %d missing: %w", i, err)
+		}
+		if _, err := out.Write(data); err != nil {
+			return "", fmt.Errorf("write chunk %d failed: %w", i, err)
+		}
+	}
+
+	//6.删除临时目录
+	os.RemoveAll(chunkDir)
+
+	//7.构建URL(相对路径转成绝对URL)
+	urlPath := path.Join("/static", relDir, filename)
+	scheme := "http"
+	return fmt.Sprintf("%s://%s%s", scheme, "localhost:8080", urlPath), nil
 }
