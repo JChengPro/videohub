@@ -88,6 +88,7 @@ services:
       rabbitmq:
         condition: service_healthy
 
+
   frontend:
     build:
       context: .
