@@ -1,6 +1,6 @@
 # VideoHub
 
-VideoHub 是一个基于 Go + Gin + GORM + Redis + RabbitMQ + Vue3 的视频内容社区。项目包含账号、视频发布、点赞、评论、关注、最新视频流、关注视频流、点赞数视频流、热视频榜等功能，并提供 Docker Compose 一键启动。
+VideoHub 是一个基于 Go + Gin + GORM + Redis + RabbitMQ + Vue3 的视频内容社区。项目包含账号、视频分片发布、点赞、评论、关注、最新视频流、关注视频流、点赞数视频流、热视频榜等功能，并提供 Docker Compose 一键启动。
 
 后端采用 API + Worker 双进程模型：API 负责 HTTP 请求、参数校验、鉴权和同步写库；Worker 负责消费 RabbitMQ 消息，执行缓存失效、热度更新、Redis 时间线维护等异步任务。
 
