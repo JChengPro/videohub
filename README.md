@@ -219,7 +219,7 @@ score = popularity
 | 模块 | 接口 |
 | --- | --- |
 | 账号 | `/account/register`, `/account/login`, `/account/changePassword`, `/account/rename`, `/account/me`, `/account/logout` |
-| 视频 | `/video/uploadCover`, `/video/uploadVideo`, `/video/publish`, `/video/getDetail`, `/video/listByAuthorID`, `/video/delete` |
+| 视频 | `/video/uploadCover`, `/video/uploadVideo`, `/video/uploadChunk`, `/video/chunkStatus`, `/video/mergeChunks`, `/video/publish`, `/video/getDetail`, `/video/listByAuthorID`, `/video/delete` |
 | 视频流 | 最新视频流、关注视频流、点赞数视频流、热视频榜 |
 | 点赞 | `/like/like`, `/like/unlike`, `/like/isLiked`, `/like/listMyLikedVideos` |
 | 评论 | `/comment/publish`, `/comment/delete`, `/comment/listAll` |
