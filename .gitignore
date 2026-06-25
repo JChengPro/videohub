@@ -1,0 +1,57 @@
+.run/
+backend/.run/
+
+#
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Code coverage profiles and other test artifacts
+*.out
+coverage.*
+*.coverprofile
+profile.cov
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+**/node_modules/
+**/dist/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# env file
+.env
+
+# Editor/IDE
+.idea/
+.vscode/
+
+# Local codex/workspace artifacts
+.codex
+.codex/
+.claude/
+.agents/
+
+# Renamed backup of the old backend, kept out of the main GitHub repo
+backend_bak/
+
+# Study compose file is local-only
+docker-compose.study.yml
+
+# Local rewrite notes
+重写后端记录.md
+面试准备-Go开发实习生.md
+原版后端未实现功能对比.md
+VideoHub_最新项目详细介绍.md
+*:Zone.Identifier
+
+# RabbitMQ local data
+data/

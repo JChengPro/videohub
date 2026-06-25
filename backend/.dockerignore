@@ -1,0 +1,4 @@
+.git
+.run
+bin
+**/*.log

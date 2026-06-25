@@ -1,0 +1,376 @@
+# VideoHub
+
+VideoHub 是一个基于 Go 开发的视频内容社区，支持账号登录、视频上传与发布、点赞评论、关注关系、互动通知、视频流浏览和热视频排行，并提供桌面端与沉浸式手机端页面。
+
+项目采用 **API + Worker 双进程模型**：API 负责鉴权、限流和同步写入核心业务数据；Worker 负责 Outbox 消息投递、RabbitMQ 消费、热度更新、缓存维护和文件删除。视频文件默认保存在本地，也可以通过环境变量切换至阿里云 OSS 私有 Bucket。
+
+> 当前项目已完成本地与 Docker 容器集成验证，适用于学习和作品展示，尚未进行真实生产环境的大规模上线。
+
+## 技术栈
+
+| 模块 | 技术 |
+| --- | --- |
+| 后端 | Go、Gin、GORM、JWT |
+| 前端 | Vue 3、TypeScript、Vite、Nginx，桌面端与手机端独立构建 |
+| 数据库 | MySQL 8 |
+| 缓存与排行 | Redis、Redis ZSET、go-cache |
+| 消息队列 | RabbitMQ |
+| 文件存储 | Local Storage、阿里云 OSS |
+| 并发控制 | MySQL 事务、行锁、singleflight |
+| 容器化 | Docker、Docker Compose |
+
+## 核心功能
+
+| 模块 | 已实现功能 |
+| --- | --- |
+| 账号 | 注册、登录、退出、修改密码、修改用户名、查询用户 |
+| 鉴权 | JWTAuth 强鉴权、SoftJWTAuth 软鉴权、token 主动撤销 |
+| 视频 | 上传封面、上传视频、分片上传、合并分片、发布、详情、作者视频、状态删除 |
+| 视频流 | 最新视频流、关注视频流、点赞排行、热视频榜 |
+| 点赞 | 点赞、取消点赞、判断是否点赞、我的点赞列表 |
+| 评论 | 发表评论、删除评论、评论列表 |
+| 关注 | 关注、取消关注、粉丝列表、关注列表 |
+| 通知 | 点赞、评论、关注异步通知、未读数、标记已读、消息页面 |
+| 客户端 | 桌面端页面、手机端沉浸式竖屏视频流、自动设备分流 |
+| 工程能力 | Outbox、消费幂等、独立通知队列、三级缓存、冷热分离、限流、Docker Compose |
+
+## 系统架构
+
+![整体架构](picture/整体架构.png)
+
+```text
+Desktop / Mobile Browser
+  |
+HTTP Gateway（生产环境按设备分流）
+  |
+Desktop Vue / Mobile Vue + Nginx
+  |
+  | /api reverse proxy
+  v
+Go API
+  |-- 参数校验 / JWT / Redis 限流
+  |-- 同步写 MySQL 业务表
+  |-- 同事务写 outbox_msgs
+  |-- 上传文件至 Local Storage / OSS
+  |
+  +----> Redis：token、缓存、时间线、热榜
+  |
+  +----> MySQL：核心业务数据、Outbox、消费记录
+              |
+              | Outbox Poller
+              v
+          RabbitMQ
+              |
+              v
+            Worker
+              |-- 消费幂等
+              |-- 更新热度和热榜
+              |-- 维护视频时间线
+              |-- 清理缓存和实际文件
+```
+
+## 核心设计
+
+### Outbox Pattern
+
+业务写库和 MQ 投递之间存在双写一致性问题：MySQL 写入成功后，RabbitMQ 可能发送失败。
+
+项目将业务数据和待发送事件放在同一个 MySQL 事务中提交：
+
+```text
+同步修改业务表
+-> 同事务写 outbox_msgs
+-> Poller 扫描 pending 消息
+-> 条件更新 pending -> publishing，抢占消息
+-> 发布 RabbitMQ
+-> 成功后标记 published
+-> 失败后恢复 pending 并记录 retry_count / last_error
+```
+
+多个 Worker 同时扫描到一条 Outbox 时，通过条件更新和 `RowsAffected` 判断谁抢占成功。卡在 `publishing` 超过一分钟的消息会被恢复为 `pending`。
+
+当前通过 Outbox 投递的事件：
+
+| 事件 | 同步主链路 | Worker 后置任务 |
+| --- | --- | --- |
+| `video_published` | 写视频和 Outbox | 写 Redis 时间线、清理旧视频流缓存 |
+| `video_deleted` | 视频状态改为 deleted、写 Outbox | 清理 Redis、删除本地或 OSS 文件 |
+| `like_created` / `like_deleted` | 修改点赞关系和点赞数、写 Outbox | 更新热度、同步热榜、删除详情缓存 |
+| `comment_published` / `comment_deleted` | 修改评论、写 Outbox | 更新热度、同步热榜 |
+| 通知事件 | 点赞、评论、关注事务写通知 Outbox | 幂等写入 notifications 表 |
+
+### MQ 消费幂等
+
+RabbitMQ 消息可能因为 ACK 丢失或消费失败而被重复投递。项目使用 `consumed_events` 表记录已处理事件，并通过 `(event_id, consumer_name)` 联合唯一索引保证：
+
+- 同一个消费者只能处理一次相同事件。
+- 同一个事件未来可以被热度、通知、统计等不同消费者分别处理。
+
+消费记录和 MySQL 热度更新放在同一个事务中。Redis 热榜不盲目重复执行 `ZINCRBY`，而是读取 MySQL 最终热度后使用 `ZADD` 覆盖 score，使 Redis 最终结果与 MySQL 一致。
+
+### Redis 时间线与冷热分离
+
+最新视频流使用 Redis ZSET 保存最近 1000 条视频：
+
+```text
+key    = feed:global_timeline
+member = video_id
+score  = 发布时间毫秒时间戳
+```
+
+Redis 时间线最老数据的时间作为冷热边界：
+
+```text
+请求时间 > 冷热边界：从 Redis 读取热数据 ID
+请求时间 <= 冷热边界：从 MySQL 读取历史冷数据
+Redis 数据不足一页：继续从 MySQL 补齐
+```
+
+Redis 时间线为空时，从 MySQL 重建最近 1000 条 published 视频，并使用 singleflight 避免并发重复重建。
+
+### 三级缓存与 singleflight
+
+根据视频 ID 查询完整实体时使用：
+
+```text
+L1：进程内 go-cache，约 5 秒
+-> L2：Redis video:entity:{id}，1 小时
+-> L3：MySQL videos 表
+```
+
+同一视频缓存失效时，singleflight 合并当前 API 进程内的并发回源请求，减少重复查询 MySQL。视频详情缓存使用互斥锁和双重检查控制缓存重建。
+
+### Redis 热榜
+
+热视频榜使用 Redis ZSET：
+
+```text
+key    = feed:hot:zset
+member = video_id
+score  = popularity
+```
+
+点赞和评论事件由 Worker 异步更新 MySQL 热度，再用最终热度覆盖 Redis score。热榜查询优先从 Redis 获取排序后的 ID，再批量查询 published 视频；Redis 无数据时回退 MySQL。
+
+### 业务正确性与并发控制
+
+- 点赞、点赞数和 Outbox 在同一个 MySQL 事务中提交。
+- 重复点赞使用唯一索引、`OnConflict DoNothing` 和 `RowsAffected` 实现请求幂等。
+- 点赞、取消点赞和发表评论时使用 `SELECT ... FOR UPDATE` 锁定 published 视频，避免删除过程中继续产生互动。
+- 视频删除使用 `WHERE id = ? AND status = published` 条件更新，重复删除不会重复创建 Outbox。
+- 所有公开查询只返回 published 视频。
+- API 同步清理关键缓存，Worker 消费删除事件后再次兜底清理。
+
+### 文件存储与私有 OSS
+
+业务层通过统一的 `Storage` 接口访问文件：
+
+```go
+type Storage interface {
+    Upload(ctx context.Context, objectKey string, reader io.Reader) error
+    Delete(ctx context.Context, objectKey string) error
+    URL(ctx context.Context, objectKey string, expires time.Duration) (string, error)
+}
+```
+
+默认使用本地存储；配置 OSS 环境变量后切换为阿里云 OSS。
+
+私有 OSS 的签名 URL 会过期，因此数据库只保存稳定的 `object_key`。查询视频时，后端根据 ObjectKey 生成新的临时签名 URL。视频被删除后，Worker 异步删除 OSS 或本地实际文件。
+
+### JWT 鉴权与 Redis 限流
+
+- JWTAuth 用于必须登录的发布、点赞、评论和关注接口。
+- SoftJWTAuth 用于公开视频流：未登录可以访问，登录用户额外返回用户态信息。
+- token 同时保存在 MySQL 和 Redis；退出登录时删除服务端 token，使旧 JWT 立即失效。
+- 登录和注册按 IP 限流；点赞、评论和关注按账号限流。
+- Redis 不可用时限流采用 fail-open，优先保证核心业务可用。
+
+## 一键启动
+
+环境要求：
+
+- Docker Desktop 或 Docker Engine
+- Docker Compose
+
+默认使用本地文件存储，无需配置 OSS：
+
+```bash
+docker compose up -d --build
+```
+
+访问地址：
+
+| 服务 | 地址 |
+| --- | --- |
+| 桌面端页面 | http://localhost:5173 |
+| 手机端页面 | http://localhost:5174 |
+| 后端 API | http://localhost:8080 |
+| RabbitMQ 管理台 | http://localhost:15672 |
+| MySQL | localhost:3307 |
+| Redis | localhost:6379 |
+
+RabbitMQ 本地演示账号：
+
+```text
+admin / password123
+```
+
+停止容器但保留数据：
+
+```bash
+docker compose stop
+```
+
+停止并删除容器：
+
+```bash
+docker compose down
+```
+
+停止并删除容器与数据卷：
+
+```bash
+docker compose down -v
+```
+
+## 可选：启用阿里云 OSS
+
+使用私有 OSS Bucket 时，在仓库根目录创建 `.env`：
+
+```dotenv
+STORAGE_TYPE=oss
+OSS_ENDPOINT=https://oss-cn-shanghai.aliyuncs.com
+OSS_REGION=oss-cn-shanghai
+OSS_BUCKET_NAME=your-bucket-name
+OSS_ACCESS_KEY_ID=your-ram-access-key-id
+OSS_ACCESS_KEY_SECRET=your-ram-access-key-secret
+```
+
+建议使用仅拥有目标 Bucket 必要权限的 RAM 用户 AccessKey，不要使用阿里云主账号 AccessKey。
+
+`.env` 已被 `.gitignore` 排除，不应提交到 Git。
+
+配置后重新构建并启动：
+
+```bash
+docker compose up -d --build
+```
+
+## 云服务器 HTTP 一键部署
+
+只有公网 IP、暂时不使用 HTTPS 时：
+
+```bash
+git clone https://github.com/JChengPro/videohub.git
+cd videohub
+cp .env.production.example .env
+```
+
+修改 `.env` 中所有 `CHANGE_ME` 密码和 `JWT_SECRET`，然后执行：
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+生产 Compose 只对公网开放 `80` 端口。访问 `http://服务器公网IP` 时，手机浏览器自动进入手机端，电脑浏览器自动进入桌面端。
+
+详细步骤见 [`deploy/云服务器HTTP部署.md`](deploy/云服务器HTTP部署.md)。
+
+## 项目结构
+
+```text
+.
+├── backend/
+│   ├── cmd/main.go                    # API 入口
+│   ├── cmd/worker/main.go             # Worker 入口
+│   ├── internal/account/              # 账号模块
+│   ├── internal/config/               # YAML 加载与环境变量覆盖
+│   ├── internal/feed/                 # 视频流、冷热分离、三级缓存
+│   ├── internal/middleware/           # JWTAuth / SoftJWTAuth
+│   ├── internal/mq/                   # RabbitMQ 和事件结构
+│   ├── internal/notification/         # 点赞、评论、关注通知
+│   ├── internal/ratelimit/            # Redis 接口限流
+│   ├── internal/social/               # 关注模块
+│   ├── internal/storage/              # Local / OSS 存储实现
+│   ├── internal/video/                # 视频、点赞、评论、Outbox
+│   ├── internal/worker/               # Poller 和 MQ Consumer
+│   └── Dockerfile                     # API / Worker 多阶段构建
+├── frontend/                          # Vue 3 桌面端前端
+├── mobile-frontend/                   # Vue 3 手机端前端
+├── deploy/                            # 云服务器 HTTP / HTTPS 部署配置
+├── picture/                           # 架构图和表结构图
+├── test/                              # Postman 测试集合
+├── docker-compose.yml                 # 服务编排
+├── docker-compose.prod.yml            # 生产环境服务编排
+├── 项目设计.md                         # 项目设计说明
+└── README.md
+```
+
+## 接口概览
+
+| 模块 | 接口 |
+| --- | --- |
+| 账号 | `/account/register`、`/account/login`、`/account/changePassword`、`/account/rename`、`/account/me`、`/account/logout` |
+| 视频 | `/video/uploadCover`、`/video/uploadVideo`、`/video/uploadChunk`、`/video/chunkStatus`、`/video/mergeChunks`、`/video/publish`、`/video/getDetail`、`/video/listByAuthorID`、`/video/delete` |
+| 视频流 | `/feed/listLatest`、`/feed/listByFollowing`、`/feed/listLikesCount`、`/feed/listByPopularity` |
+| 点赞 | `/like/like`、`/like/unlike`、`/like/isLiked`、`/like/listMyLikedVideos` |
+| 评论 | `/comment/publish`、`/comment/delete`、`/comment/listAll` |
+| 关注 | `/social/follow`、`/social/unfollow`、`/social/getAllFollowers`、`/social/getAllVloggers` |
+| 通知 | `/notification/list`、`/notification/unreadCount`、`/notification/markRead`、`/notification/markAllRead` |
+
+## 本地开发
+
+只启动依赖：
+
+```bash
+docker compose up -d mysql redis rabbitmq
+```
+
+启动 API：
+
+```bash
+cd backend
+go run ./cmd
+```
+
+启动 Worker：
+
+```bash
+cd backend
+go run ./cmd/worker
+```
+
+启动前端：
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+启动手机端前端：
+
+```bash
+cd mobile-frontend
+npm install
+npm run dev
+```
+
+## 当前验证情况
+
+- 桌面端与手机端生产构建通过。
+- API、Worker、桌面端和手机端 Docker 镜像构建通过。
+- 本地 Docker Compose 桌面端、手机端和依赖服务启动通过。
+- 生产 Compose 配置解析、HTTP Gateway 设备分流和 API 反向代理验证通过。
+- API 健康检查通过。
+- 本地存储和阿里云私有 OSS 存储链路已验证。
+- OSS 文件上传、ObjectKey 发布、签名 URL 访问和异步删除链路已验证。
+
+## 后续优化方向
+
+- 根据需求为通知中心接入 WebSocket 实时提醒。
+- 增加 Outbox 失败消息告警、指数退避、死信队列和重放接口。
+- 增加 OSS 孤儿对象定时清理、客户端直传和 CDN。
+- 补充 Prometheus、Grafana、结构化日志和链路追踪。
+- 补充并发、故障场景的自动化单元测试与集成测试。
+- 将固定窗口限流升级为滑动窗口或令牌桶。
