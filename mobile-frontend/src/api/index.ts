@@ -1,19 +1,35 @@
 import { useAuthStore } from '../stores/auth'
-import type { Account, Comment, FeedVideo, MessageResponse, Notification, TokenResponse, Video } from './types'
+import type { Account, Comment, FeedVideo, MessageResponse, Notification, PublishVideoInput, TokenResponse, Video } from './types'
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/api'
 
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  status: number
+  payload?: unknown
 
-function parseResponse(text: string) {
+  constructor(message: string, status = 0, payload?: unknown) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.payload = payload
+  }
+}
+
+function parseResponse(text: string): unknown {
   if (!text) return null
   try { return JSON.parse(text) }
   catch { return { error: text } }
 }
 
+function responseError(data: unknown, status: number, fallback: string) {
+  if (data && typeof data === 'object' && 'error' in data && typeof data.error === 'string' && data.error) return data.error
+  if (status === 413) return '上传文件太大，视频最大 200MB，封面最大 10MB'
+  return fallback
+}
+
 async function request<T>(path: string, body: unknown, authRequired = false): Promise<T> {
   const auth = useAuthStore()
-  if (authRequired && !auth.isLoggedIn) throw new ApiError('请先登录')
+  if (authRequired && !auth.isLoggedIn) throw new ApiError('请先登录', 401)
   const response = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
     headers: {
@@ -26,14 +42,14 @@ async function request<T>(path: string, body: unknown, authRequired = false): Pr
   const data = parseResponse(text)
   if (!response.ok) {
     if (response.status === 401) auth.clearToken()
-    throw new ApiError(data?.error || `请求失败 (${response.status})`)
+    throw new ApiError(responseError(data, response.status, `请求失败 (${response.status})`), response.status, data)
   }
   return data as T
 }
 
 async function formRequest<T>(path: string, form: FormData): Promise<T> {
   const auth = useAuthStore()
-  if (!auth.isLoggedIn || !auth.token) throw new ApiError('请先登录')
+  if (!auth.isLoggedIn || !auth.token) throw new ApiError('请先登录', 401)
   const response = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${auth.token}` },
@@ -41,13 +57,13 @@ async function formRequest<T>(path: string, form: FormData): Promise<T> {
   })
   const data = parseResponse(await response.text())
   if (response.status === 401) auth.clearToken()
-  if (!response.ok) throw new ApiError(data?.error || `请求失败 (${response.status})`)
+  if (!response.ok) throw new ApiError(responseError(data, response.status, `请求失败 (${response.status})`), response.status, data)
   return data as T
 }
 
 function xhrUpload<T>(path: string, body: FormData | Blob, headers: Record<string, string>, onProgress?: (progress: number) => void): Promise<T> {
   const auth = useAuthStore()
-  if (!auth.isLoggedIn || !auth.token) throw new ApiError('请先登录')
+  if (!auth.isLoggedIn || !auth.token) throw new ApiError('请先登录', 401)
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
@@ -58,11 +74,12 @@ function xhrUpload<T>(path: string, body: FormData | Blob, headers: Record<strin
       if (event.lengthComputable) onProgress?.(Math.round((event.loaded / event.total) * 100))
     }
     xhr.onerror = () => reject(new ApiError('网络连接异常，上传失败'))
+    xhr.onabort = () => reject(new ApiError('上传已取消'))
     xhr.onload = () => {
       const data = parseResponse(xhr.responseText)
       if (xhr.status === 401) auth.clearToken()
       if (xhr.status < 200 || xhr.status >= 300) {
-        reject(new ApiError(data?.error || `上传失败 (${xhr.status})`))
+        reject(new ApiError(responseError(data, xhr.status, `上传失败 (${xhr.status})`), xhr.status, data))
         return
       }
       onProgress?.(100)
@@ -174,5 +191,5 @@ export const api = {
     return formRequest<{ url?: string; cover_url?: string; object_key?: string }>('/video/uploadCover', form)
   },
   uploadVideo: uploadVideoSmart,
-  publish: (body: object) => request<Video>('/video/publish', body, true),
+  publish: (body: PublishVideoInput) => request<Video>('/video/publish', body, true),
 }

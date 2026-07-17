@@ -4,11 +4,15 @@ const toast = useToastStore()
 </script>
 
 <template>
-  <Transition name="toast"><div v-if="toast.message" class="toast" :class="toast.type">{{ toast.message }}</div></Transition>
+  <div class="toast-host" aria-live="polite" aria-atomic="true">
+    <Transition name="toast"><div v-if="toast.message" class="toast" :class="toast.type" :role="toast.type === 'error' ? 'alert' : 'status'">{{ toast.message }}</div></Transition>
+  </div>
 </template>
 
 <style scoped>
-.toast { position: fixed; z-index: 200; top: calc(24px + env(safe-area-inset-top)); left: 50%; max-width: calc(100vw - 40px); padding: 11px 16px; transform: translateX(-50%); border: 1px solid rgba(255,255,255,.15); border-radius: 99px; background: rgba(35,35,40,.96); box-shadow: 0 12px 40px rgba(0,0,0,.35); color: #fff; font-size: 13px; white-space: nowrap; }
-.toast.error { border-color: rgba(254,44,85,.5); }.toast.success { border-color: rgba(36,215,232,.45); }
-.toast-enter-active,.toast-leave-active { transition: all .2s ease; }.toast-enter-from,.toast-leave-to { opacity: 0; transform: translate(-50%,-8px); }
+.toast-host { position: fixed; z-index: 200; top: calc(18px + env(safe-area-inset-top)); right: 16px; left: 16px; display: grid; justify-items: center; pointer-events: none; }
+.toast { max-width: min(360px, 100%); padding: 11px 16px; border: 1px solid var(--mobile-border-strong); border-radius: 16px; background: var(--mobile-overlay); box-shadow: var(--mobile-shadow); color: var(--mobile-text); font-size: 12px; line-height: 1.45; text-align: center; overflow-wrap: anywhere; pointer-events: auto; }
+.toast.error { border-color: rgba(255,83,103,.5); }.toast.success { border-color: rgba(85,213,151,.4); }
+.toast-enter-active,.toast-leave-active { transition: opacity .2s ease, transform .2s ease; }
+.toast-enter-from,.toast-leave-to { opacity: 0; transform: translateY(-8px); }
 </style>

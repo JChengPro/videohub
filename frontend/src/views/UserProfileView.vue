@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import AppShell from '../components/AppShell.vue'
@@ -35,35 +35,50 @@ const state = reactive({
 })
 
 const isFollowing = computed(() => (auth.isLoggedIn ? social.isFollowing(userId.value) : false))
+const followBusy = ref(false)
+const drawerElement = ref<HTMLElement | null>(null)
+let profileRequest = 0
+let socialRequest = 0
+let drawerTrigger: HTMLElement | null = null
 
 async function loadProfile() {
-  if (!Number.isFinite(userId.value) || userId.value <= 0) {
+  const id = userId.value
+  const request = ++profileRequest
+  if (!Number.isFinite(id) || id <= 0) {
+    state.loading = false
     state.error = '无效的用户 id'
+    state.user = null
+    state.videos = []
     return
   }
 
   state.loading = true
   state.error = ''
   try {
-    const [u, vids] = await Promise.all([accountApi.findById(userId.value), videoApi.listByAuthorId(userId.value)])
+    const [u, vids] = await Promise.all([accountApi.findById(id), videoApi.listByAuthorId(id)])
+    if (request !== profileRequest || id !== userId.value) return
     state.user = u
     state.videos = vids
     if (auth.isLoggedIn) await social.refreshVloggers()
   } catch (e) {
+    if (request !== profileRequest) return
     state.error = e instanceof ApiError ? e.message : String(e)
     state.user = null
     state.videos = []
   } finally {
-    state.loading = false
+    if (request === profileRequest) state.loading = false
   }
 
-  await loadSocialCounts()
+  if (request === profileRequest) await loadSocialCounts()
 }
 
 async function loadSocialCounts() {
+  const id = userId.value
+  const request = ++socialRequest
   state.socialError = ''
   state.followers = []
   state.vloggers = []
+  state.socialLoading = false
 
   if (!auth.isLoggedIn) return
   if (!Number.isFinite(userId.value) || userId.value <= 0) return
@@ -71,15 +86,16 @@ async function loadSocialCounts() {
   state.socialLoading = true
   try {
     const [followersRes, vloggersRes] = await Promise.all([
-      socialApi.getAllFollowers(userId.value),
-      socialApi.getAllVloggers(userId.value),
+      socialApi.getAllFollowers(id),
+      socialApi.getAllVloggers(id),
     ])
+    if (request !== socialRequest || id !== userId.value) return
     state.followers = followersRes.followers
     state.vloggers = vloggersRes.vloggers
   } catch (e) {
-    state.socialError = e instanceof ApiError ? e.message : String(e)
+    if (request === socialRequest) state.socialError = e instanceof ApiError ? e.message : String(e)
   } finally {
-    state.socialLoading = false
+    if (request === socialRequest) state.socialLoading = false
   }
 }
 
@@ -90,7 +106,9 @@ async function toggleFollow() {
     await router.push('/account')
     return
   }
+  if (followBusy.value) return
 
+  followBusy.value = true
   try {
     if (isFollowing.value) {
       await social.unfollow(userId.value)
@@ -103,6 +121,8 @@ async function toggleFollow() {
   } catch (e) {
     const msg = e instanceof ApiError ? e.message : String(e)
     toast.error(msg)
+  } finally {
+    followBusy.value = false
   }
 }
 
@@ -112,18 +132,33 @@ const drawer = reactive({
   tab: 'followers' as ListTab,
 })
 
-function openFollowers() {
+async function openFollowers() {
+  drawerTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null
   drawer.tab = 'followers'
   drawer.open = true
+  await nextTick()
+  drawerElement.value?.focus()
 }
 
-function openFollowing() {
+async function openFollowing() {
+  drawerTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null
   drawer.tab = 'following'
   drawer.open = true
+  await nextTick()
+  drawerElement.value?.focus()
 }
 
 function closeDrawer() {
   drawer.open = false
+  drawerTrigger?.focus()
+  drawerTrigger = null
+}
+
+function onKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && drawer.open) {
+    event.preventDefault()
+    closeDrawer()
+  }
 }
 
 const listTitle = computed(() => (drawer.tab === 'followers' ? '粉丝' : '关注'))
@@ -154,7 +189,16 @@ watch(
   },
 )
 
-onMounted(loadProfile)
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+  void loadProfile()
+})
+
+onBeforeUnmount(() => {
+  profileRequest += 1
+  socialRequest += 1
+  window.removeEventListener('keydown', onKeydown)
+})
 </script>
 
 <template>
@@ -171,7 +215,7 @@ onMounted(loadProfile)
 
         <div class="row">
           <button v-if="isMe" class="ghost" type="button" @click="router.push('/account')">我的账号</button>
-          <button v-else class="primary" type="button" :disabled="!state.user || state.loading" @click="toggleFollow">
+          <button v-else class="primary" type="button" :disabled="!state.user || state.loading || followBusy" @click="toggleFollow">
             {{ isFollowing ? '已关注' : '关注' }}
           </button>
         </div>
@@ -218,9 +262,9 @@ onMounted(loadProfile)
     </div>
 
     <div v-if="drawer.open" class="drawer-backdrop" @click.self="closeDrawer">
-      <div class="drawer">
+      <div ref="drawerElement" class="drawer" role="dialog" aria-modal="true" aria-labelledby="profile-list-title" tabindex="-1">
         <div class="drawer-head">
-          <div class="drawer-title">{{ listTitle }}</div>
+          <div id="profile-list-title" class="drawer-title">{{ listTitle }}</div>
           <button class="drawer-x" type="button" aria-label="关闭列表" @click="closeDrawer">×</button>
         </div>
         <div class="drawer-body">

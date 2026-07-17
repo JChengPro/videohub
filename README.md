@@ -1,6 +1,6 @@
 # VideoHub
 
-VideoHub 是一个基于 Go 开发的视频内容社区，支持账号登录、视频上传与发布、点赞评论、关注关系、互动通知、视频流浏览和热视频排行，并提供桌面端与沉浸式手机端页面。
+VideoHub 是一个基于 Go 开发的视频内容社区，支持账号登录、视频上传与发布、点赞评论、关注关系、互动通知、视频流浏览和热视频排行，并提供独立构建的桌面端与沉浸式手机端页面。
 
 项目采用 **API + Worker 双进程模型**：API 负责鉴权、限流和同步写入核心业务数据；Worker 负责 Outbox 消息投递、RabbitMQ 消费、热度更新、缓存维护和文件删除。视频文件默认保存在本地，也可以通过环境变量切换至阿里云 OSS 私有 Bucket。
 
@@ -11,11 +11,11 @@ VideoHub 是一个基于 Go 开发的视频内容社区，支持账号登录、�
 | 模块 | 技术 |
 | --- | --- |
 | 后端 | Go、Gin、GORM、JWT |
-| 前端 | Vue 3、TypeScript、Vite、Nginx，桌面端与手机端独立构建 |
+| 前端 | Vue 3、TypeScript、Vite、Vue Router、Pinia、Nginx，桌面端与手机端独立构建 |
 | 数据库 | MySQL 8 |
 | 缓存与排行 | Redis、Redis ZSET、go-cache |
 | 消息队列 | RabbitMQ |
-| 文件存储 | Local Storage、阿里云 OSS |
+| 文件存储 | 本地文件系统、阿里云 OSS 私有 Bucket |
 | 并发控制 | MySQL 事务、行锁、singleflight |
 | 容器化 | Docker、Docker Compose |
 
@@ -31,8 +31,47 @@ VideoHub 是一个基于 Go 开发的视频内容社区，支持账号登录、�
 | 评论 | 发表评论、删除评论、评论列表 |
 | 关注 | 关注、取消关注、粉丝列表、关注列表 |
 | 通知 | 点赞、评论、关注异步通知、未读数、标记已读、消息页面 |
-| 客户端 | 桌面端页面、手机端沉浸式竖屏视频流、自动设备分流 |
+| 客户端 | 桌面沉浸式播放、手机竖屏滑动、双端评论互动、响应式布局、自动设备分流 |
 | 工程能力 | Outbox、消费幂等、独立通知队列、三级缓存、冷热分离、限流、Docker Compose |
+
+## 双端客户端体验
+
+桌面端和手机端共享同一套后端接口，但保持独立的页面结构和构建产物。两端使用统一的深色视觉语言、状态反馈和账号数据，不强行将桌面页面缩放成手机页面。
+
+### 桌面端
+
+- 使用侧边导航、顶部搜索和居中视频舞台，兼容宽屏、普通桌面和小屏桌面。
+- 推荐流和关注流支持自动播放、上下切换、播放暂停、静音切换、点赞、关注、评论和分享。
+- 支持键盘操作：`↑` / `↓` 切换视频、`Space` 播放或暂停、`M` 切换声音、`C` 打开评论、`Esc` 关闭弹层。
+- 评论抽屉打开时暂停当前视频，关闭后只在视频原本处于播放状态时恢复。
+- 发布页面支持视频预览、封面预览、真实上传进度和大文件分片上传，并在上传期间阻止误离开页面。
+- 消息筛选、用户主页、个人中心和视频详情均提供加载、空数据、错误与重试状态。
+
+### 手机端
+
+- 使用 `100dvh`、`safe-area-inset-top` 和 `safe-area-inset-bottom` 适配移动浏览器地址栏、刘海和底部安全区。
+- 推荐、关注和热门视频流采用一屏一个视频的纵向滚动吸附，只播放当前可见视频，快速滑动时自动暂停其他视频。
+- 页面进入后台时暂停视频，恢复页面后仅按之前的播放状态恢复当前视频。
+- 支持单击播放或暂停、双击点赞、长描述展开、静音切换、关注、评论、分享和游标分页。
+- 评论 Bottom Sheet 支持遮罩关闭、`Esc` 关闭、焦点管理、背景滚动锁定、评论发布和删除。
+- 消息未读数由 Pinia Store 统一维护；个人中心支持作品、喜欢、关注、粉丝、改名、改密码和删除作品。
+- 发布页面支持手机常见视频格式、上传前预览、封面选择、分片上传进度和上传期间路由保护。
+
+### 播放与格式说明
+
+- 为满足浏览器自动播放策略，视频默认静音播放。页面显示“开启声音”表示当前处于静音状态，点击后才会播放声音；有声时按钮显示“关闭声音”。
+- 当前支持上传 `MP4`、`MOV`、`M4V`、`WebM`、`3GP` 和 `3GPP`，视频最大 200 MB，封面支持 JPG、PNG、WebP，最大 10 MB。
+- 大于 10 MB 的视频自动按 5 MB 分片上传，小文件使用单次上传并展示真实网络进度。
+- 部分 iPhone 拍摄的 HEVC/MOV 文件可能可以上传，但当前浏览器无法直接预览或播放。跨设备稳定播放仍需要后续增加服务端转码。
+
+### 前端可靠性
+
+- Feed、消息、用户主页和详情请求使用请求序号隔离，快速切换页面或筛选时，旧响应不会覆盖新状态。
+- 点赞、关注、评论、删除、登录和发布操作具备请求中禁用或防重复提交处理。
+- 视频 DOM 引用、`IntersectionObserver`、事件监听器、`requestAnimationFrame` 和预览 Object URL 会在切换或卸载时清理。
+- 登录状态支持同源浏览器标签页同步；退出登录或切换账号时清理旧的关注、点赞、消息和个人资料状态。
+- API 层兼容空响应、非 JSON 错误、401 登录失效、413 文件过大和上传网络异常。
+- 主要图标按钮具备 `aria-label`，评论弹层支持焦点管理，并适配 `prefers-reduced-motion`。
 
 ## 系统架构
 
@@ -209,6 +248,8 @@ docker compose up -d --build
 | MySQL | localhost:3307 |
 | Redis | localhost:6379 |
 
+首次打开视频流时浏览器会以静音方式自动播放，点击视频可以播放或暂停，点击“开启声音”后才会输出声音。手机端也可以直接访问 `http://localhost:5174`，无需依赖自动设备分流。
+
 RabbitMQ 本地演示账号：
 
 ```text
@@ -274,7 +315,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 生产 Compose 只对公网开放 `80` 端口。访问 `http://服务器公网IP` 时，手机浏览器自动进入手机端，电脑浏览器自动进入桌面端。
 
-详细步骤见 [`deploy/云服务器HTTP部署.md`](deploy/云服务器HTTP部署.md)。
+生产部署参数分别见 [`docker-compose.prod.yml`](docker-compose.prod.yml) 和 [`.env.production.example`](.env.production.example)。
 
 ## 项目结构
 
@@ -296,8 +337,9 @@ docker compose -f docker-compose.prod.yml up -d --build
 │   ├── internal/worker/               # Poller 和 MQ Consumer
 │   └── Dockerfile                     # API / Worker 多阶段构建
 ├── frontend/                          # Vue 3 桌面端前端
+│   └── src/                           # 框架、视频流、发布、消息、账号和详情页面
 ├── mobile-frontend/                   # Vue 3 手机端前端
-├── deploy/                            # 云服务器 HTTP / HTTPS 部署配置
+│   └── src/                           # 竖屏视频流、评论弹层、底部导航和业务页面
 ├── picture/                           # 架构图和表结构图
 ├── test/                              # Postman 测试集合
 ├── docker-compose.yml                 # 服务编排
@@ -356,9 +398,22 @@ npm install
 npm run dev
 ```
 
+执行生产构建检查：
+
+```bash
+cd frontend
+npm run build
+
+cd ../mobile-frontend
+npm run build
+```
+
 ## 当前验证情况
 
-- 桌面端与手机端生产构建通过。
+- 桌面端 `vue-tsc -b && vite build` 生产构建通过。
+- 手机端 `vue-tsc -b && vite build` 生产构建通过。
+- 桌面端和手机端原有路由、API URL、请求字段和鉴权方式保持不变。
+- 前端改动未修改 `backend/`、Docker Compose、Nginx 或后端部署拓扑。
 - API、Worker、桌面端和手机端 Docker 镜像构建通过。
 - 本地 Docker Compose 桌面端、手机端和依赖服务启动通过。
 - 生产 Compose 配置解析、HTTP Gateway 设备分流和 API 反向代理验证通过。
@@ -366,11 +421,15 @@ npm run dev
 - 本地存储和阿里云私有 OSS 存储链路已验证。
 - OSS 文件上传、ObjectKey 发布、签名 URL 访问和异步删除链路已验证。
 
+生产构建只能验证 TypeScript、Vue 模板和打包流程。自动播放授权、虚拟键盘、刘海安全区、摄像视频编码和弱网上传仍建议在实际 Chrome、Safari、Android 和 iPhone 设备上回归。
+
 ## 后续优化方向
 
 - 根据需求为通知中心接入 WebSocket 实时提醒。
 - 增加 Outbox 失败消息告警、指数退避、死信队列和重放接口。
 - 增加 OSS 孤儿对象定时清理、客户端直传和 CDN。
+- 增加视频转码与多码率输出，统一处理 HEVC、MOV 等移动设备视频编码。
+- 为两套前端增加 Playwright 端到端测试和移动设备视口回归。
 - 补充 Prometheus、Grafana、结构化日志和链路追踪。
 - 补充并发、故障场景的自动化单元测试与集成测试。
 - 将固定窗口限流升级为滑动窗口或令牌桶。

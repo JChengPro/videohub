@@ -26,6 +26,15 @@ export type Video = {
   likes_count: number
 }
 
+export type PublishVideoInput = {
+  title: string
+  description: string
+  play_url: string
+  cover_url: string
+  play_object_key: string
+  cover_object_key: string
+}
+
 export type Comment = {
   id: number
   username: string

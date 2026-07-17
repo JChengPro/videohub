@@ -31,8 +31,17 @@ const state = reactive({
 })
 
 const muted = ref(true)
+const paused = ref(true)
+const mediaLoading = ref(false)
+const playbackError = ref('')
 const videoEl = ref<HTMLVideoElement | null>(null)
 const commentInput = ref<HTMLTextAreaElement | null>(null)
+let videoRequest = 0
+let likeRequest = 0
+let commentRequest = 0
+let resumeAfterVisibility = false
+let resumeAfterDrawer = false
+let drawerTrigger: HTMLElement | null = null
 
 const drawer = reactive({
   open: false,
@@ -48,55 +57,98 @@ async function needLogin() {
 }
 
 async function loadVideo() {
-  if (!Number.isFinite(id.value) || id.value <= 0) {
+  const videoId = id.value
+  const request = ++videoRequest
+  state.video = null
+  if (!Number.isFinite(videoId) || videoId <= 0) {
+    state.loading = false
     state.error = '无效的 video id'
     return
   }
   state.loading = true
   state.error = ''
   try {
-    state.video = await videoApi.getDetail(id.value)
+    const video = await videoApi.getDetail(videoId)
+    if (request === videoRequest && videoId === id.value) state.video = video
   } catch (e) {
-    state.error = e instanceof ApiError ? e.message : String(e)
+    if (request === videoRequest) state.error = e instanceof ApiError ? e.message : String(e)
   } finally {
-    state.loading = false
+    if (request === videoRequest) state.loading = false
   }
 }
 
 async function loadIsLiked() {
+  const request = ++likeRequest
+  const videoId = id.value
   if (!auth.isLoggedIn) {
     state.isLiked = null
     return
   }
   try {
-    const res = await likeApi.isLiked(id.value)
-    state.isLiked = res.is_liked
+    const res = await likeApi.isLiked(videoId)
+    if (request === likeRequest && videoId === id.value) state.isLiked = res.is_liked
   } catch {
-    state.isLiked = null
+    if (request === likeRequest) state.isLiked = null
   }
 }
 
 async function play() {
-  if (!videoEl.value) return
+  if (!videoEl.value || document.hidden || drawer.open) return
   videoEl.value.muted = muted.value
+  playbackError.value = ''
   try {
     await videoEl.value.play()
+    paused.value = false
   } catch {
-    // ignore
+    paused.value = true
+    playbackError.value = '浏览器阻止了自动播放，点击继续'
   }
 }
 
 function toggleMute() {
   muted.value = !muted.value
   if (videoEl.value) videoEl.value.muted = muted.value
-  toast.info(muted.value ? '已静音' : '已取消静音')
+  toast.info(muted.value ? '声音已关闭' : '声音已开启')
 }
 
-function togglePlayPause() {
+async function togglePlayPause() {
   const v = videoEl.value
   if (!v) return
-  if (v.paused) void v.play()
-  else v.pause()
+  if (v.paused) {
+    playbackError.value = ''
+    try {
+      await v.play()
+      paused.value = false
+    } catch {
+      paused.value = true
+      playbackError.value = '视频暂时无法播放，请重试'
+    }
+  } else {
+    v.pause()
+    paused.value = true
+  }
+}
+
+function onVideoPlaying() {
+  mediaLoading.value = false
+  playbackError.value = ''
+  paused.value = false
+}
+
+function onVideoPause() {
+  paused.value = true
+}
+
+function onVideoError() {
+  mediaLoading.value = false
+  paused.value = true
+  playbackError.value = '视频加载失败，点击重试'
+}
+
+async function retryPlayback() {
+  if (!videoEl.value) return
+  videoEl.value.load()
+  await togglePlayPause()
 }
 
 async function toggleLike() {
@@ -150,9 +202,14 @@ async function share() {
   if (!state.video) return
   const url = `${location.origin}/video/${state.video.id}`
   try {
+    if (navigator.share) {
+      await navigator.share({ title: state.video.title, url })
+      return
+    }
     await navigator.clipboard.writeText(url)
     toast.success('链接已复制')
-  } catch {
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') return
     window.prompt('复制链接', url)
   }
 }
@@ -182,10 +239,16 @@ async function deleteVideo() {
 }
 
 function closeDrawer() {
+  commentRequest += 1
   drawer.open = false
   drawer.comments = []
   drawer.content = ''
   drawer.error = ''
+  if (resumeAfterDrawer && !document.hidden) void play()
+  else paused.value = videoEl.value?.paused ?? true
+  resumeAfterDrawer = false
+  drawerTrigger?.focus()
+  drawerTrigger = null
 }
 
 async function focusCommentInput() {
@@ -195,18 +258,24 @@ async function focusCommentInput() {
 
 async function loadComments() {
   if (!state.video) return
+  const videoId = state.video.id
+  const request = ++commentRequest
   drawer.loading = true
   drawer.error = ''
   try {
-    drawer.comments = await commentApi.listAll(state.video.id)
+    const comments = await commentApi.listAll(videoId)
+    if (request === commentRequest && drawer.open && state.video?.id === videoId) drawer.comments = comments
   } catch (e) {
-    drawer.error = e instanceof ApiError ? e.message : String(e)
+    if (request === commentRequest && drawer.open) drawer.error = e instanceof ApiError ? e.message : String(e)
   } finally {
-    drawer.loading = false
+    if (request === commentRequest) drawer.loading = false
   }
 }
 
 async function openComments() {
+  resumeAfterDrawer = !!videoEl.value && !videoEl.value.paused
+  drawerTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  videoEl.value?.pause()
   drawer.open = true
   drawer.content = ''
   await loadComments()
@@ -294,6 +363,16 @@ async function onKeydown(e: KeyboardEvent) {
   }
 }
 
+function onVisibilityChange() {
+  if (document.hidden) {
+    resumeAfterVisibility = !!videoEl.value && !videoEl.value.paused && !drawer.open
+    videoEl.value?.pause()
+    return
+  }
+  if (resumeAfterVisibility && !drawer.open) void play()
+  resumeAfterVisibility = false
+}
+
 watch(
   () => id.value,
   async () => {
@@ -318,10 +397,16 @@ onMounted(async () => {
   await nextTick()
   await play()
   window.addEventListener('keydown', onKeydown)
+  document.addEventListener('visibilitychange', onVisibilityChange)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+  videoRequest += 1
+  likeRequest += 1
+  commentRequest += 1
+  videoEl.value?.pause()
 })
 </script>
 
@@ -333,7 +418,15 @@ onBeforeUnmount(() => {
           <RouterLink class="top-chip" to="/">返回推荐</RouterLink>
         </div>
         <div class="top-right">
-          <button class="top-chip" type="button" @click="toggleMute">{{ muted ? '有声' : '静音' }}</button>
+          <button
+            class="top-chip"
+            type="button"
+            :aria-label="muted ? '当前静音，点击开启声音' : '当前有声，点击关闭声音'"
+            :title="muted ? '当前静音' : '当前有声'"
+            @click="toggleMute"
+          >
+            {{ muted ? '开启声音' : '关闭声音' }}
+          </button>
         </div>
       </div>
 
@@ -350,8 +443,18 @@ onBeforeUnmount(() => {
             playsinline
             preload="metadata"
             loop
+            @playing="onVideoPlaying"
+            @pause="onVideoPause"
+            @waiting="mediaLoading = true"
+            @canplay="mediaLoading = false"
+            @error="onVideoError"
           />
           <div class="grad" />
+          <div v-if="mediaLoading && !playbackError" class="media-status" role="status"><span class="media-spinner" />正在缓冲</div>
+          <button v-if="playbackError" class="media-error" type="button" @click.stop="retryPlayback"><span>{{ playbackError }}</span><b>重试</b></button>
+          <button v-if="paused && !mediaLoading && !playbackError" class="pause-indicator" type="button" aria-label="继续播放" @click.stop="togglePlayPause">
+            <svg viewBox="0 0 24 24" fill="none"><path d="m9 6 10 6-10 6V6Z" /></svg>
+          </button>
 
           <div class="meta">
             <RouterLink class="author-link" :to="`/u/${state.video.author_id}`" @click.stop>
@@ -367,7 +470,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="actions">
-            <button class="act" type="button" :disabled="state.busy" @click.stop="toggleLike">
+            <button class="act" type="button" :aria-label="state.isLiked ? `取消点赞，当前 ${state.video.likes_count} 赞` : `点赞，当前 ${state.video.likes_count} 赞`" :disabled="state.busy" @click.stop="toggleLike">
               <span class="icon" :class="{ liked: !!state.isLiked }" aria-hidden="true">
                 <svg viewBox="0 0 24 24">
                   <path d="M12 21s-7.2-4.7-9.4-9.2C.9 8.2 2.8 4.5 6.6 4.5c2 0 3.5 1 4.4 2.3.9-1.3 2.4-2.3 4.4-2.3 3.8 0 5.7 3.7 4 7.3C19.2 16.3 12 21 12 21Z" />
@@ -376,7 +479,7 @@ onBeforeUnmount(() => {
               <span class="count">{{ state.video.likes_count }}</span>
             </button>
 
-            <button class="act" type="button" @click.stop="openComments">
+            <button class="act" type="button" aria-label="查看评论" @click.stop="openComments">
               <span class="icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24">
                   <path d="M5 5.5A3.5 3.5 0 0 1 8.5 2h7A3.5 3.5 0 0 1 19 5.5v5A3.5 3.5 0 0 1 15.5 14H11l-5.2 4.1A.5.5 0 0 1 5 17.7V5.5Z" />
@@ -389,6 +492,7 @@ onBeforeUnmount(() => {
               v-if="!auth.claims?.account_id || auth.claims.account_id !== state.video.author_id"
               class="act"
               type="button"
+              :aria-label="social.isFollowing(state.video.author_id) ? `取消关注 ${state.video.username}` : `关注 ${state.video.username}`"
               :disabled="state.busy"
               @click.stop="toggleFollow"
             >
@@ -400,7 +504,7 @@ onBeforeUnmount(() => {
               <span class="count">{{ social.isFollowing(state.video.author_id) ? '已关注' : '关注' }}</span>
             </button>
 
-            <button class="act" type="button" @click.stop="share">
+            <button class="act" type="button" aria-label="分享视频" @click.stop="share">
               <span class="icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24">
                   <path d="M14 4h5a1 1 0 0 1 1 1v5a1 1 0 1 1-2 0V7.4l-8.3 8.3a1 1 0 0 1-1.4-1.4L16.6 6H14a1 1 0 1 1 0-2Z" />
@@ -410,7 +514,7 @@ onBeforeUnmount(() => {
               <span class="count">分享</span>
             </button>
 
-            <button v-if="isOwner" class="act act-danger" type="button" :disabled="state.busy" @click.stop="deleteVideo">
+            <button v-if="isOwner" class="act act-danger" type="button" aria-label="删除视频" :disabled="state.busy" @click.stop="deleteVideo">
               <span class="icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24">
                   <path d="M9 3h6a1 1 0 0 1 1 1v1h4a1 1 0 1 1 0 2h-1v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7H4a1 1 0 1 1 0-2h4V4a1 1 0 0 1 1-1Zm1 2h4V5h-4v0Zm-1 5a1 1 0 1 0-2 0v7a1 1 0 1 0 2 0v-7Zm4 0a1 1 0 1 0-2 0v7a1 1 0 1 0 2 0v-7Zm4 0a1 1 0 1 0-2 0v7a1 1 0 1 0 2 0v-7Z" />
@@ -430,9 +534,9 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-if="drawer.open" class="drawer-backdrop" @click.self="closeDrawer">
-        <div class="drawer">
+        <div class="drawer" role="dialog" aria-modal="true" aria-labelledby="detail-comments-title">
           <div class="drawer-head">
-            <div class="drawer-title">评论</div>
+            <div id="detail-comments-title" class="drawer-title">评论</div>
             <button class="drawer-x" type="button" aria-label="关闭评论" @click="closeDrawer">×</button>
           </div>
 
@@ -458,7 +562,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="drawer-foot">
-            <textarea ref="commentInput" v-model="drawer.content" placeholder="说点什么…" :disabled="drawer.loading" @keydown.esc.prevent="closeDrawer" />
+            <textarea ref="commentInput" v-model="drawer.content" aria-label="评论内容" maxlength="300" placeholder="说点什么…" :disabled="drawer.loading" @keydown.esc.prevent="closeDrawer" />
             <div class="drawer-actions">
               <button class="comment-action" type="button" :disabled="drawer.loading" @click="loadComments">刷新</button>
               <button class="comment-action primary" type="button" :disabled="drawer.loading || !drawer.content.trim()" @click="publishComment">
@@ -531,10 +635,10 @@ onBeforeUnmount(() => {
 }
 
 .stage {
-  width: min(1040px, calc(100vw - 36px));
-  height: calc(100vh - 68px - 58px - 44px);
+  width: min(1120px, calc(100% - 36px));
+  height: calc(100dvh - 64px - 58px - 44px);
   position: relative;
-  border-radius: 30px;
+  border-radius: var(--radius-xl);
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.16);
   background: rgba(0, 0, 0, 0.35);
@@ -557,8 +661,85 @@ onBeforeUnmount(() => {
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   background: rgba(0, 0, 0, 0.4);
+}
+
+.media-status,
+.media-error {
+  position: absolute;
+  z-index: 5;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(255, 255, 255, .15);
+  border-radius: 999px;
+  background: rgba(9, 9, 11, .78);
+  color: rgba(255, 255, 255, .86);
+  backdrop-filter: blur(14px);
+  font-size: 12px;
+}
+
+.media-status {
+  padding: 10px 15px;
+  pointer-events: none;
+}
+
+.media-error {
+  max-width: min(360px, calc(100% - 40px));
+  padding: 10px 12px 10px 16px;
+  text-align: left;
+}
+
+.media-error b {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #fff;
+  color: #111;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.media-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, .24);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: detail-spin .75s linear infinite;
+}
+
+@keyframes detail-spin {
+  to { transform: rotate(360deg); }
+}
+
+.pause-indicator {
+  position: absolute;
+  z-index: 4;
+  top: 50%;
+  left: 50%;
+  width: 68px;
+  height: 68px;
+  padding: 0;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(255, 255, 255, .2);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, .48);
+  backdrop-filter: blur(12px);
+}
+
+.pause-indicator svg {
+  width: 29px;
+  margin-left: 3px;
+  stroke: #fff;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .grad {
@@ -598,19 +779,27 @@ onBeforeUnmount(() => {
 }
 
 .title {
+  overflow: hidden;
+  display: -webkit-box;
   font-size: clamp(24px, 3.1vw, 48px);
   line-height: 0.98;
   font-weight: 950;
   letter-spacing: -0.055em;
   margin-bottom: 10px;
   text-shadow: 0 18px 44px rgba(0, 0, 0, 0.58);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .desc {
+  overflow: hidden;
+  display: -webkit-box;
   color: rgba(255, 255, 255, 0.74);
   font-size: 14px;
   line-height: 1.45;
   max-width: 58ch;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .asset-link {
@@ -769,7 +958,7 @@ onBeforeUnmount(() => {
 
 .drawer {
   width: min(420px, calc(100vw - 18px));
-  height: 100vh;
+  height: 100dvh;
   background: var(--surface-overlay);
   border-left: 1px solid rgba(255, 255, 255, 0.12);
   display: grid;
@@ -966,9 +1155,9 @@ onBeforeUnmount(() => {
 
 @media (max-width: 900px) {
   .stage {
-    width: calc(100vw - 28px);
-    height: calc(100vh - 68px - 58px - 36px);
-    border-radius: 24px;
+    width: calc(100% - 12px);
+    height: calc(100dvh - 64px - 58px - 36px);
+    border-radius: var(--radius-lg);
   }
   .drawer-backdrop {
     justify-items: center;
@@ -976,11 +1165,21 @@ onBeforeUnmount(() => {
   }
   .drawer {
     width: calc(100vw - 16px);
-    height: min(72vh, 560px);
+    height: min(72dvh, 560px);
     border-left: none;
     border-top: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 18px 18px 0 0;
     overflow: hidden;
   }
+}
+
+@media (max-width: 768px) {
+  .top { height: 52px; padding-inline: 12px; }
+  .wrap { padding: 12px 8px; }
+  .stage { height: calc(100dvh - 56px - 52px - 62px - env(safe-area-inset-bottom) - 24px); }
+  .hint { display: none; }
+  .meta { left: 14px; bottom: 16px; }
+  .actions { right: 10px; bottom: 14px; }
+  .act { width: 62px; padding: 9px 7px; border-radius: 17px; }
 }
 </style>

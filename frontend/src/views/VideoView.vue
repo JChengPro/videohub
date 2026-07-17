@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onUnmounted, reactive, ref, watch } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { onBeforeRouteLeave, RouterLink, useRouter } from 'vue-router'
 
 import AppShell from '../components/AppShell.vue'
 import { ApiError } from '../api/client'
@@ -38,6 +38,12 @@ const preview = reactive({
 
 const titleCount = computed(() => publishForm.title.length)
 const descriptionCount = computed(() => publishForm.description.length)
+const overallProgress = computed(() => {
+  if (stage.value === '上传封面') return 8
+  if (stage.value === '上传视频') return 8 + Math.round(videoProgress.value * 0.84)
+  if (stage.value === '发布视频') return 96
+  return 0
+})
 
 function formatMiB(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
@@ -63,7 +69,22 @@ watch(
   (f) => setPreviewCover(f),
 )
 
+function onBeforeUnload(event: BeforeUnloadEvent) {
+  if (!busy.value) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+onMounted(() => window.addEventListener('beforeunload', onBeforeUnload))
+
+onBeforeRouteLeave(() => {
+  if (!busy.value) return true
+  toast.info('视频正在上传，请等待发布完成后再离开')
+  return false
+})
+
 onUnmounted(() => {
+  window.removeEventListener('beforeunload', onBeforeUnload)
   setPreviewVideo(null)
   setPreviewCover(null)
 })
@@ -96,6 +117,12 @@ function dropVideo(e: DragEvent) {
 function pickCover(e: Event) {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0] ?? null
+  if (file && !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+    toast.error('封面仅支持 JPG、PNG 或 WebP')
+    input.value = ''
+    publishForm.cover = null
+    return
+  }
   if (file && file.size > maxCoverBytes) {
     toast.error(`封面文件过大：${formatMiB(file.size)}，最大支持 ${formatMiB(maxCoverBytes)}`)
     input.value = ''
@@ -212,7 +239,7 @@ async function onPublish() {
         </div>
         <div class="header-status">
           <span class="status-dot" :class="{ active: busy }" />
-          {{ busy ? stage || '正在处理' : '草稿自动保存在当前页面' }}
+          {{ busy ? stage || '正在处理' : '完成视频、封面和标题后即可发布' }}
         </div>
       </header>
 
@@ -389,16 +416,16 @@ async function onPublish() {
             </ul>
           </div>
 
-          <div v-if="busy" class="side-card progress-card">
+          <div v-if="busy" class="side-card progress-card" role="progressbar" aria-label="视频发布进度" :aria-valuenow="overallProgress" aria-valuemin="0" aria-valuemax="100">
             <div class="progress-heading">
               <div>
                 <span>正在处理</span>
                 <strong>{{ stage || '准备中' }}</strong>
               </div>
-              <b>{{ stage === '上传视频' ? `${videoProgress}%` : '…' }}</b>
+              <b>{{ overallProgress }}%</b>
             </div>
             <div class="progress-bar">
-              <div class="progress-fill" :style="{ width: stage === '上传视频' ? videoProgress + '%' : '12%' }" />
+              <div class="progress-fill" :style="{ width: `${overallProgress}%` }" />
             </div>
             <p>发布期间请不要关闭页面</p>
           </div>

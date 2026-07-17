@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useSocialStore } from '../stores/social'
@@ -41,17 +41,24 @@ async function onSearch() {
   const q = search.value.trim()
   await router.push({ path: '/', query: q ? { q } : {} })
 }
+
+function syncAuthFromStorage(event: StorageEvent) {
+  if (event.key === 'jwt_token') auth.syncFromStorage()
+}
+
+onMounted(() => window.addEventListener('storage', syncAuthFromStorage))
+onBeforeUnmount(() => window.removeEventListener('storage', syncAuthFromStorage))
 </script>
 
 <template>
   <div class="shell">
-    <aside class="sidebar">
-      <RouterLink class="logo" to="/">
+    <aside class="sidebar" aria-label="主导航">
+      <RouterLink class="logo" to="/" aria-label="VideoHub 首页">
         <span class="logo-icon">VH</span>
         <span class="logo-text">VideoHub</span>
       </RouterLink>
 
-      <nav class="nav">
+      <nav class="nav" aria-label="内容导航">
         <RouterLink class="nav-item" to="/" exact-active-class="router-link-active">
           <svg viewBox="0 0 24 24" fill="none"><path d="m4 10 8-7 8 7v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-9Z"/><path d="M9 21v-7h6v7"/></svg>
           <span>首页</span>
@@ -91,12 +98,13 @@ async function onSearch() {
 
     <main class="main">
       <header class="topbar">
-        <div class="search-box">
+        <form class="search-box" role="search" @submit.prevent="onSearch">
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
-          <input v-model="search" placeholder="搜索你感兴趣的视频" @keydown.enter="onSearch" />
-        </div>
+          <input v-model="search" aria-label="搜索视频或作者" autocomplete="off" placeholder="搜索视频或作者" />
+          <button class="search-submit" type="submit" aria-label="提交搜索">搜索</button>
+        </form>
         <RouterLink v-if="auth.isLoggedIn" class="publish-btn" to="/video">
-          <span>+</span> 发布
+          <span aria-hidden="true">+</span> 发布
         </RouterLink>
       </header>
 
@@ -118,17 +126,17 @@ async function onSearch() {
 
 <style scoped>
 .shell {
-  height: 100vh;
+  height: 100dvh;
   display: grid;
-  grid-template-columns: 208px 1fr;
-  background: linear-gradient(145deg, #1b1b1e, #151517);
+  grid-template-columns: 220px minmax(0, 1fr);
+  background: var(--surface-base);
 }
 
 /* ---- sidebar ---- */
 .sidebar {
   border-right: 1px solid var(--border);
   background: var(--surface-sidebar);
-  padding: 18px 12px;
+  padding: 20px 14px 16px;
   display: flex;
   flex-direction: column;
   gap: 24px;
@@ -144,14 +152,14 @@ async function onSearch() {
 .logo-icon {
   width: 36px;
   height: 36px;
-  border-radius: 10px;
+  border-radius: var(--radius);
   display: grid;
   place-items: center;
   font-weight: 800;
   font-size: 14px;
-  background: #fff;
+  background: #f7f7f8;
   color: #080808;
-  box-shadow: -3px 0 0 #20d5ec, 3px 0 0 #fe2c55;
+  box-shadow: -3px 0 0 var(--accent-cyan), 3px 0 0 var(--accent);
 }
 
 .logo-text {
@@ -167,15 +175,16 @@ async function onSearch() {
 }
 
 .nav-item {
+  position: relative;
   min-height: 46px;
   padding: 0 13px;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   gap: 13px;
   font-size: 15px;
   color: var(--text-secondary);
-  transition: background 120ms ease, color 120ms ease;
+  transition: background var(--duration-fast) ease, color var(--duration-fast) ease;
 }
 
 .nav-item svg {
@@ -193,9 +202,20 @@ async function onSearch() {
 }
 
 .nav-item.router-link-active {
-  background: var(--surface-hover);
+  background: linear-gradient(90deg, var(--accent-dim), rgba(255, 255, 255, .035));
   color: #fff;
   font-weight: 600;
+}
+
+.nav-item.router-link-active::before {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 0;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--accent);
+  content: '';
 }
 
 .nav-badge {
@@ -249,7 +269,8 @@ async function onSearch() {
   display: block;
   text-align: center;
   padding: 8px;
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   background: var(--bg-hover);
   color: var(--text-secondary);
   font-size: 14px;
@@ -262,27 +283,28 @@ async function onSearch() {
 
 /* ---- main ---- */
 .main {
-  height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   min-width: 0;
 }
 
 .topbar {
-  height: 56px;
+  height: 64px;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 0 20px;
-  background: rgba(30, 30, 33, .9);
-  backdrop-filter: blur(16px);
+  padding: 0 24px;
+  background: rgba(13, 13, 15, .86);
+  backdrop-filter: blur(18px) saturate(120%);
 }
 
 .search-box {
   flex: 1;
   max-width: 520px;
   position: relative;
+  display: flex;
 }
 
 .search-box svg {
@@ -298,12 +320,30 @@ async function onSearch() {
 }
 
 .search-box input {
-  height: 38px;
+  height: 40px;
   background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: 999px;
   padding: 0 16px 0 40px;
   font-size: 14px;
+  color: var(--text);
+}
+
+.search-submit {
+  position: absolute;
+  top: 4px;
+  right: 5px;
+  width: 54px;
+  height: 32px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.search-submit:hover {
+  background: var(--surface-hover);
   color: var(--text);
 }
 
@@ -314,7 +354,7 @@ async function onSearch() {
 .publish-btn {
   min-width: 88px;
   padding: 8px 17px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--accent);
   color: #fff;
   font-size: 14px;
@@ -346,6 +386,43 @@ async function onSearch() {
   overflow: hidden;
 }
 
+@media (max-width: 1180px) and (min-width: 769px) {
+  .shell {
+    grid-template-columns: 78px minmax(0, 1fr);
+  }
+
+  .sidebar {
+    padding-inline: 10px;
+  }
+
+  .logo {
+    justify-content: center;
+  }
+
+  .logo-text,
+  .nav-item span,
+  .sidebar-foot {
+    display: none;
+  }
+
+  .nav-item {
+    min-height: 50px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .nav-item.router-link-active::before {
+    top: 14px;
+    bottom: 14px;
+  }
+
+  .nav-badge {
+    position: absolute;
+    top: 5px;
+    right: 7px;
+  }
+}
+
 @media (max-width: 768px) {
   .shell {
     grid-template-columns: 1fr;
@@ -356,8 +433,8 @@ async function onSearch() {
     right: 0;
     bottom: 0;
     left: 0;
-    height: 62px;
-    padding: 6px 8px;
+    height: calc(62px + env(safe-area-inset-bottom));
+    padding: 6px 8px env(safe-area-inset-bottom);
     border-top: 1px solid var(--border);
     border-right: 0;
     display: block;
@@ -369,8 +446,11 @@ async function onSearch() {
   .nav-item { min-height: 48px; padding: 4px 2px; flex-direction: column; justify-content: center; gap: 2px; border-radius: 6px; font-size: 9px; }
   .nav-item svg { width: 19px; height: 19px; }
   .nav-badge { position: absolute; top: 2px; right: 15%; min-width: 14px; height: 14px; padding: 0 3px; font-size: 7px; }
-  .main { padding-bottom: 62px; }
-  .topbar { padding: 0 12px; }
+  .nav-item.router-link-active::before { display: none; }
+  .main { padding-bottom: calc(62px + env(safe-area-inset-bottom)); }
+  .topbar { height: 56px; padding: 0 12px; }
   .publish-btn { display: none; }
+  .search-submit { display: none; }
+  .search-box input { padding-right: 14px; }
 }
 </style>

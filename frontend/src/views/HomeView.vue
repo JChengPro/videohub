@@ -69,8 +69,15 @@ const followBusy = reactive<Record<string, boolean>>({})
 
 const muted = ref(true)
 const paused = ref(false)
+const mediaLoading = ref(false)
+const playbackError = ref('')
 const activeIndex = ref(0)
 const videoMap = new Map<number, HTMLVideoElement>()
+let resumeAfterVisibility = false
+let resumeAfterDrawer = false
+let drawerTrigger: HTMLElement | null = null
+let followingRequest = 0
+let commentRequest = 0
 
 const currentState = computed(() => {
   if (tab.value === 'hot') return hot
@@ -126,7 +133,7 @@ function onScroll() {
 
 async function playActive() {
   const item = activeItem.value
-  if (!item) return
+  if (!item || document.hidden || drawer.open) return
   for (const [id, v] of videoMap.entries()) {
     if (id === item.id) continue
     v.pause()
@@ -134,32 +141,75 @@ async function playActive() {
   const video = videoMap.get(item.id)
   if (!video) return
   video.muted = muted.value
+  playbackError.value = ''
   try {
     await video.play()
     paused.value = false
   } catch {
-    // ignore autoplay errors
+    paused.value = true
+    playbackError.value = '浏览器阻止了自动播放，点击继续'
   }
 }
 
 function toggleMute() {
   muted.value = !muted.value
   for (const v of videoMap.values()) v.muted = muted.value
-  toast.info(muted.value ? '已静音' : '已取消静音')
+  toast.info(muted.value ? '声音已关闭' : '声音已开启')
 }
 
-function togglePlayPause() {
+async function togglePlayPause() {
   const item = activeItem.value
   if (!item) return
   const video = videoMap.get(item.id)
   if (!video) return
   if (video.paused) {
-    void video.play()
-    paused.value = false
+    playbackError.value = ''
+    try {
+      await video.play()
+      paused.value = false
+    } catch {
+      paused.value = true
+      playbackError.value = '视频暂时无法播放，请重试'
+    }
   } else {
     video.pause()
     paused.value = true
   }
+}
+
+function onVideoPlaying(id: number) {
+  if (activeItem.value?.id !== id) return
+  mediaLoading.value = false
+  playbackError.value = ''
+  paused.value = false
+}
+
+function onVideoPause(id: number) {
+  if (activeItem.value?.id === id) paused.value = true
+}
+
+function onVideoWaiting(id: number) {
+  if (activeItem.value?.id === id) mediaLoading.value = true
+}
+
+function onVideoCanPlay(id: number) {
+  if (activeItem.value?.id === id) mediaLoading.value = false
+}
+
+function onVideoError(id: number) {
+  if (activeItem.value?.id !== id) return
+  mediaLoading.value = false
+  paused.value = true
+  playbackError.value = '视频加载失败，点击重试'
+}
+
+async function retryPlayback() {
+  const item = activeItem.value
+  if (!item) return
+  const video = videoMap.get(item.id)
+  if (!video) return
+  video.load()
+  await togglePlayPause()
 }
 
 async function needLogin() {
@@ -206,21 +256,28 @@ async function loadHot(reset: boolean) {
 
 async function loadFollowing(reset: boolean) {
   if (!auth.isLoggedIn) {
+    followingRequest += 1
+    following.loading = false
+    following.items = []
+    following.hasMore = false
+    following.nextTime = 0
     following.error = '登录后才能查看关注流'
     return
   }
-  if (following.loading) return
+  if (!reset && following.loading) return
+  const request = reset ? ++followingRequest : followingRequest
   following.loading = true
   following.error = ''
   try {
     const res = await feedApi.listByFollowing({ limit: 10, latest_time: reset ? 0 : following.nextTime })
+    if (request !== followingRequest) return
     following.hasMore = res.has_more
     following.nextTime = res.next_time
     following.items = reset ? res.video_list : following.items.concat(res.video_list)
   } catch (e) {
-    following.error = e instanceof ApiError ? e.message : String(e)
+    if (request === followingRequest) following.error = e instanceof ApiError ? e.message : String(e)
   } finally {
-    following.loading = false
+    if (request === followingRequest) following.loading = false
   }
 }
 
@@ -282,9 +339,14 @@ async function toggleFollow(authorId: number) {
 async function share(item: FeedVideoItem) {
   const url = `${location.origin}/video/${item.id}`
   try {
+    if (navigator.share) {
+      await navigator.share({ title: item.title, url })
+      return
+    }
     await navigator.clipboard.writeText(url)
     toast.success('链接已复制')
-  } catch {
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') return
     window.prompt('复制链接', url)
   }
 }
@@ -299,12 +361,17 @@ const drawer = reactive({
 })
 
 function closeDrawer() {
+  commentRequest += 1
   drawer.open = false
   drawer.video = null
   drawer.comments = []
   drawer.content = ''
   drawer.error = ''
-  void playActive()
+  if (resumeAfterDrawer && !document.hidden) void playActive()
+  else paused.value = true
+  resumeAfterDrawer = false
+  drawerTrigger?.focus()
+  drawerTrigger = null
 }
 
 async function focusCommentInput() {
@@ -313,7 +380,10 @@ async function focusCommentInput() {
 }
 
 async function openComments(item: FeedVideoItem) {
-  videoMap.get(item.id)?.pause()
+  const video = videoMap.get(item.id)
+  resumeAfterDrawer = !!video && !video.paused
+  drawerTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  video?.pause()
   paused.value = true
   drawer.open = true
   drawer.video = item
@@ -324,14 +394,17 @@ async function openComments(item: FeedVideoItem) {
 
 async function loadComments() {
   if (!drawer.video) return
+  const videoId = drawer.video.id
+  const request = ++commentRequest
   drawer.loading = true
   drawer.error = ''
   try {
-    drawer.comments = await commentApi.listAll(drawer.video.id)
+    const comments = await commentApi.listAll(videoId)
+    if (request === commentRequest && drawer.open && drawer.video?.id === videoId) drawer.comments = comments
   } catch (e) {
-    drawer.error = e instanceof ApiError ? e.message : String(e)
+    if (request === commentRequest && drawer.open) drawer.error = e instanceof ApiError ? e.message : String(e)
   } finally {
-    drawer.loading = false
+    if (request === commentRequest) drawer.loading = false
   }
 }
 
@@ -420,6 +493,18 @@ async function onKeydown(e: KeyboardEvent) {
   }
 }
 
+function onVisibilityChange() {
+  const item = activeItem.value
+  const video = item ? videoMap.get(item.id) : undefined
+  if (document.hidden) {
+    resumeAfterVisibility = !!video && !video.paused && !drawer.open
+    video?.pause()
+    return
+  }
+  if (resumeAfterVisibility && !drawer.open) void playActive()
+  resumeAfterVisibility = false
+}
+
 watch(activeItem, async () => {
   await nextTick()
   await playActive()
@@ -464,9 +549,8 @@ watch(
 watch(
   () => auth.isLoggedIn,
   async (v) => {
-    if (tab.value === 'following' && v && following.items.length === 0) {
-      await loadFollowing(true)
-    }
+    if (!v) await loadFollowing(true)
+    else if (tab.value === 'following') await loadFollowing(true)
   },
 )
 
@@ -476,10 +560,17 @@ onMounted(async () => {
   await nextTick()
   await playActive()
   window.addEventListener('keydown', onKeydown)
+  document.addEventListener('visibilitychange', onVisibilityChange)
 })
 
 onBeforeUnmount(() => {
+  followingRequest += 1
+  commentRequest += 1
   window.removeEventListener('keydown', onKeydown)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+  if (scrollRaf) window.cancelAnimationFrame(scrollRaf)
+  for (const video of videoMap.values()) video.pause()
+  videoMap.clear()
 })
 </script>
 
@@ -491,7 +582,15 @@ onBeforeUnmount(() => {
         <button class="tab" :class="{ on: tab === 'following' }" type="button" @click="selectTab('following')">关注</button>
 
         <div class="tabs-right">
-          <button class="top-chip" type="button" @click="toggleMute">{{ muted ? '有声' : '静音' }}</button>
+          <button
+            class="top-chip"
+            type="button"
+            :aria-label="muted ? '当前静音，点击开启声音' : '当前有声，点击关闭声音'"
+            :title="muted ? '当前静音' : '当前有声'"
+            @click="toggleMute"
+          >
+            {{ muted ? '开启声音' : '关闭声音' }}
+          </button>
           <RouterLink class="top-chip" :to="activeItem ? `/video/${activeItem.id}` : '/video'">详情</RouterLink>
         </div>
       </div>
@@ -525,9 +624,22 @@ onBeforeUnmount(() => {
               preload="metadata"
               loop
               @click.stop="togglePlayPause"
+              @playing="onVideoPlaying(item.id)"
+              @pause="onVideoPause(item.id)"
+              @waiting="onVideoWaiting(item.id)"
+              @canplay="onVideoCanPlay(item.id)"
+              @error="onVideoError(item.id)"
             />
             <div class="grad" />
-            <button v-if="idx === activeIndex && paused" class="pause-indicator" type="button" aria-label="继续播放" @click.stop="togglePlayPause">
+            <div v-if="idx === activeIndex && mediaLoading && !playbackError" class="media-status" role="status">
+              <span class="media-spinner" />
+              <span>正在缓冲</span>
+            </div>
+            <button v-if="idx === activeIndex && playbackError" class="media-error" type="button" @click.stop="retryPlayback">
+              <span>{{ playbackError }}</span>
+              <b>重试</b>
+            </button>
+            <button v-if="idx === activeIndex && paused && !mediaLoading && !playbackError" class="pause-indicator" type="button" aria-label="继续播放" @click.stop="togglePlayPause">
               <svg viewBox="0 0 24 24" fill="none"><path d="m9 6 10 6-10 6V6Z"/></svg>
             </button>
 
@@ -541,7 +653,7 @@ onBeforeUnmount(() => {
             </div>
 
             <div class="actions">
-              <button class="act" type="button" :disabled="!!likeBusy[String(item.id)]" @click.stop="toggleLike(item)">
+              <button class="act" type="button" :aria-label="item.is_liked ? `取消点赞，当前 ${item.likes_count} 赞` : `点赞，当前 ${item.likes_count} 赞`" :disabled="!!likeBusy[String(item.id)]" @click.stop="toggleLike(item)">
                 <span class="icon" :class="{ liked: item.is_liked }" aria-hidden="true">
                   <svg viewBox="0 0 24 24">
                     <path d="M12 21s-7.2-4.7-9.4-9.2C.9 8.2 2.8 4.5 6.6 4.5c2 0 3.5 1 4.4 2.3.9-1.3 2.4-2.3 4.4-2.3 3.8 0 5.7 3.7 4 7.3C19.2 16.3 12 21 12 21Z" />
@@ -550,7 +662,7 @@ onBeforeUnmount(() => {
                 <span class="count">{{ item.likes_count }}</span>
               </button>
 
-              <button class="act" type="button" @click.stop="openComments(item)">
+              <button class="act" type="button" aria-label="查看评论" @click.stop="openComments(item)">
                 <span class="icon" aria-hidden="true">
                   <svg viewBox="0 0 24 24">
                     <path d="M5 5.5A3.5 3.5 0 0 1 8.5 2h7A3.5 3.5 0 0 1 19 5.5v5A3.5 3.5 0 0 1 15.5 14H11l-5.2 4.1A.5.5 0 0 1 5 17.7V5.5Z" />
@@ -563,6 +675,7 @@ onBeforeUnmount(() => {
                 v-if="!myAccountId || myAccountId !== item.author.id"
                 class="act"
                 type="button"
+                :aria-label="social.isFollowing(item.author.id) ? `取消关注 ${item.author.username}` : `关注 ${item.author.username}`"
                 :disabled="!!followBusy[String(item.author.id)]"
                 @click.stop="toggleFollow(item.author.id)"
               >
@@ -574,7 +687,7 @@ onBeforeUnmount(() => {
                 <span class="count">{{ social.isFollowing(item.author.id) ? '已关注' : '关注' }}</span>
               </button>
 
-              <button class="act" type="button" @click.stop="share(item)">
+              <button class="act" type="button" aria-label="分享视频" @click.stop="share(item)">
                 <span class="icon" aria-hidden="true">
                   <svg viewBox="0 0 24 24">
                     <path d="M14 4h5a1 1 0 0 1 1 1v5a1 1 0 1 1-2 0V7.4l-8.3 8.3a1 1 0 0 1-1.4-1.4L16.6 6H14a1 1 0 1 1 0-2Z" />
@@ -596,11 +709,11 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-if="drawer.open" class="drawer-backdrop" @click.self="closeDrawer">
-        <div class="drawer">
+        <div class="drawer" role="dialog" aria-modal="true" aria-labelledby="home-comments-title">
           <div class="drawer-head">
             <div>
               <span class="drawer-kicker">COMMENTS</span>
-              <div class="drawer-title">评论 <b>{{ drawer.comments.length }}</b></div>
+              <div id="home-comments-title" class="drawer-title">评论 <b>{{ drawer.comments.length }}</b></div>
               <p>{{ drawer.video?.title ?? '视频评论' }}</p>
             </div>
             <button class="drawer-x" type="button" aria-label="关闭评论" @click="closeDrawer">×</button>
@@ -631,7 +744,7 @@ onBeforeUnmount(() => {
           <div class="drawer-foot">
             <UserAvatar :username="auth.claims?.username ?? 'User'" :id="myAccountId" :size="34" />
             <div class="comment-composer">
-              <textarea ref="commentInput" v-model="drawer.content" placeholder="留下你的评论" :disabled="drawer.loading" @keydown.esc.prevent="closeDrawer" />
+              <textarea ref="commentInput" v-model="drawer.content" aria-label="评论内容" maxlength="300" placeholder="留下你的评论" :disabled="drawer.loading" @keydown.esc.prevent="closeDrawer" />
               <button class="comment-action primary" type="button" :disabled="drawer.loading || !drawer.content.trim()" @click="publishComment">发送</button>
             </div>
           </div>
@@ -642,12 +755,12 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.page { height: 100%; display: flex; flex-direction: column; background: linear-gradient(145deg, #1b1b1e, #161618); }
+.page { height: 100%; display: flex; flex-direction: column; background: var(--surface-base); }
 
 .tabs {
   height: 56px; display: flex; align-items: center; justify-content: center; gap: 28px;
   padding: 0 18px; border-bottom: 1px solid var(--border);
-  background: rgba(34, 34, 37, .92); backdrop-filter: blur(14px);
+  background: rgba(17, 17, 20, .9); backdrop-filter: blur(16px);
 }
 .tab {
   position: relative; border: 0; background: transparent; color: var(--text-secondary);
@@ -670,6 +783,7 @@ onBeforeUnmount(() => {
 .scroller {
   flex: 1; min-height: 0; overflow-y: auto;
   scroll-snap-type: y mandatory; scroll-behavior: smooth;
+  overscroll-behavior: contain;
   scrollbar-width: none;
 }
 .scroller::-webkit-scrollbar { width:0; height:0; }
@@ -686,14 +800,37 @@ onBeforeUnmount(() => {
   background: var(--accent); color: #fff; text-decoration: none; font-weight: 700;
 }
 
-.slide { height: 100%; scroll-snap-align: start; padding: 18px 14px; display: grid; place-items: center; }
+.slide { height: 100%; scroll-snap-align: start; scroll-snap-stop: always; padding: 18px 14px; display: grid; place-items: center; }
 .stage {
-  width: min(1040px, calc(100vw - 28px));
-  height: calc(100vh - 56px - 56px - 36px);
-  position: relative; border-radius: 20px; overflow: hidden;
-  border: 1px solid var(--border); background: #202023;
+  width: min(1120px, calc(100% - 28px));
+  height: calc(100dvh - 64px - 56px - 36px);
+  position: relative; border-radius: var(--radius-xl); overflow: hidden;
+  border: 1px solid var(--border); background: #050506;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, .28);
 }
-.video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #050506; }
+.media-status,
+.media-error {
+  position: absolute;
+  z-index: 5;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(255, 255, 255, .15);
+  border-radius: 999px;
+  background: rgba(9, 9, 11, .74);
+  color: rgba(255, 255, 255, .86);
+  backdrop-filter: blur(14px);
+  font-size: 12px;
+}
+.media-status { padding: 10px 15px; pointer-events: none; }
+.media-error { max-width: min(360px, calc(100% - 40px)); padding: 10px 12px 10px 16px; text-align: left; }
+.media-error b { padding: 5px 9px; border-radius: 999px; background: #fff; color: #111; font-size: 10px; white-space: nowrap; }
+.media-spinner { width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.24); border-top-color: #fff; border-radius: 50%; animation: media-spin .75s linear infinite; }
+@keyframes media-spin { to { transform: rotate(360deg); } }
 .pause-indicator {
   position: absolute; z-index: 4; top: 50%; left: 50%; width: 68px; height: 68px;
   padding: 0; transform: translate(-50%, -50%); border: 1px solid rgba(255,255,255,.2);
@@ -709,12 +846,12 @@ onBeforeUnmount(() => {
 .meta { position: absolute; z-index: 2; left: 18px; bottom: 20px; max-width: min(600px, calc(100% - 90px)); }
 .author-link { display: inline-flex; align-items: center; gap: 8px; font-weight: 800; margin-bottom: 4px; }
 .author-name { text-shadow: 0 10px 20px rgba(0,0,0,0.6); font-weight: 900; }
-.title { font-size: clamp(20px,2.5vw,38px); font-weight: 900; margin-bottom: 6px; text-shadow: 0 10px 30px rgba(0,0,0,0.6); }
-.desc { color: rgba(255,255,255,0.7); font-size: 13px; }
+.title { max-width: 720px; overflow: hidden; display: -webkit-box; font-size: clamp(20px,2.5vw,38px); font-weight: 900; margin-bottom: 6px; text-shadow: 0 10px 30px rgba(0,0,0,0.6); -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.desc { max-width: 680px; overflow: hidden; display: -webkit-box; color: rgba(255,255,255,0.74); font-size: 13px; line-height: 1.55; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 
 .actions { position: absolute; z-index: 2; right: 14px; bottom: 20px; display: grid; gap: 10px; }
 .act {
-  width: 64px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.14);
+  width: 64px; min-height: 60px; border-radius: 18px; border: 1px solid rgba(255,255,255,0.14);
   background: rgba(0,0,0,0.5); backdrop-filter: blur(10px);
   color: rgba(255,255,255,0.9); padding: 10px 8px; cursor: pointer;
   display: grid; gap: 4px; justify-items: center;
@@ -736,7 +873,7 @@ onBeforeUnmount(() => {
 
 .drawer-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.48); backdrop-filter: blur(5px); z-index: 120; display: grid; justify-items: end; }
 .drawer {
-  width: min(430px, calc(100vw - 16px)); height: 100vh;
+  width: min(440px, calc(100vw - 16px)); height: 100dvh;
   background: var(--surface-panel); border-left: 1px solid rgba(255,255,255,.1);
   display: grid; grid-template-rows: auto 1fr auto;
   box-shadow: -24px 0 60px rgba(0,0,0,.34);
@@ -785,8 +922,18 @@ onBeforeUnmount(() => {
 .comment-action:disabled { opacity: 0.5; cursor: not-allowed; }
 
 @media (max-width: 900px) {
-  .stage { width: calc(100vw - 20px); height: calc(100vh - 56px - 56px - 28px); border-radius: 14px; }
+  .stage { width: calc(100% - 12px); height: calc(100dvh - 64px - 56px - 28px); border-radius: var(--radius-lg); }
   .drawer-backdrop { justify-items: center; align-items: end; }
-  .drawer { width: calc(100vw - 12px); height: min(70vh, 500px); border-left: none; border-top: 1px solid var(--border); border-radius: 14px 14px 0 0; overflow: hidden; }
+  .drawer { width: calc(100vw - 12px); height: min(72dvh, 540px); border-left: none; border-top: 1px solid var(--border); border-radius: var(--radius-lg) var(--radius-lg) 0 0; overflow: hidden; }
+}
+
+@media (max-width: 768px) {
+  .tabs { height: 52px; padding-inline: 12px; }
+  .tab { padding-block: 15px 13px; }
+  .top-chip { padding: 6px 9px; font-size: 11px; }
+  .stage { height: calc(100dvh - 56px - 52px - 62px - env(safe-area-inset-bottom) - 24px); }
+  .hint { display: none; }
+  .meta { left: 14px; bottom: 16px; }
+  .actions { right: 10px; bottom: 14px; }
 }
 </style>

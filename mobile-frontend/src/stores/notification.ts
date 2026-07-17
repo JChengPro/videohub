@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
-import * as notificationApi from '../api/notification'
+import { api } from '../api'
 import { useAuthStore } from './auth'
 
 export const useNotificationStore = defineStore('notification', () => {
@@ -9,17 +9,17 @@ export const useNotificationStore = defineStore('notification', () => {
   const unread = ref(0)
   let request = 0
 
-  async function refreshUnread() {
+  async function refresh() {
     const current = ++request
     if (!auth.isLoggedIn) {
       unread.value = 0
       return
     }
     try {
-      const res = await notificationApi.unreadCount()
-      if (current === request && auth.isLoggedIn) unread.value = Math.max(0, res.count)
+      const response = await api.unread()
+      if (current === request) unread.value = Math.max(0, response.count)
     } catch {
-      if (current === request) unread.value = 0
+      // Keep the last known count when a transient request fails.
     }
   }
 
@@ -36,5 +36,5 @@ export const useNotificationStore = defineStore('notification', () => {
     unread.value = 0
   }
 
-  return { unread, refreshUnread, readOne, readAll, clear }
+  return { unread, refresh, readOne, readAll, clear }
 })

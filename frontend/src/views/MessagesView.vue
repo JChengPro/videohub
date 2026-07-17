@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { ApiError } from '../api/client'
@@ -25,6 +25,7 @@ const state = reactive({
   hasMore: false,
   nextBeforeId: 0,
 })
+let loadRequest = 0
 
 const filters: Array<{ key: Filter; label: string }> = [
   { key: 'all', label: '全部消息' },
@@ -64,22 +65,36 @@ function formatTime(value: string) {
 }
 
 async function load(reset: boolean) {
-  if (!auth.isLoggedIn || state.loading) return
+  if (!auth.isLoggedIn) {
+    loadRequest += 1
+    state.loading = false
+    state.error = ''
+    state.items = []
+    state.hasMore = false
+    state.nextBeforeId = 0
+    return
+  }
+  if (!reset && (state.loading || !state.hasMore)) return
+
+  const request = reset ? ++loadRequest : loadRequest
+  const selectedFilter = filter.value
   state.loading = true
   state.error = ''
   try {
     const res = await notificationApi.list({
-      type: filter.value === 'all' ? undefined : filter.value,
+      type: selectedFilter === 'all' ? undefined : selectedFilter,
       limit: 20,
       before_id: reset ? undefined : state.nextBeforeId,
     })
-    state.items = reset ? res.notifications : state.items.concat(res.notifications)
+    if (request !== loadRequest || selectedFilter !== filter.value) return
+    const seen = new Set(state.items.map((item) => item.id))
+    state.items = reset ? res.notifications : state.items.concat(res.notifications.filter((item) => !seen.has(item.id)))
     state.hasMore = res.has_more
     state.nextBeforeId = res.next_before_id
   } catch (e) {
-    state.error = e instanceof ApiError ? e.message : String(e)
+    if (request === loadRequest) state.error = e instanceof ApiError ? e.message : String(e)
   } finally {
-    state.loading = false
+    if (request === loadRequest) state.loading = false
   }
 }
 
@@ -120,6 +135,16 @@ onMounted(async () => {
     await Promise.all([load(true), notificationStore.refreshUnread()])
   }
 })
+
+watch(() => auth.isLoggedIn, (loggedIn) => {
+  if (loggedIn) void Promise.all([load(true), notificationStore.refreshUnread()])
+  else {
+    notificationStore.clear()
+    void load(true)
+  }
+})
+
+onBeforeUnmount(() => { loadRequest += 1 })
 </script>
 
 <template>

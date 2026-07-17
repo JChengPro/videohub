@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onUnmounted, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { onBeforeRouteLeave, useRouter } from 'vue-router'
 import { api, isSupportedVideo, VIDEO_ACCEPT, videoFileExtension } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { useToastStore } from '../stores/toast'
@@ -17,7 +17,7 @@ const videoInput = ref<HTMLInputElement | null>(null)
 const form = reactive({ title: '', description: '', video: null as File | null, cover: null as File | null })
 const videoPreview = ref('')
 const coverPreview = ref('')
-const canPublish = computed(() => form.title.trim() && form.video && form.cover && !busy.value)
+const canPublish = computed(() => Boolean(form.title.trim() && form.video && form.cover && !busy.value))
 const videoMeta = computed(() => {
   if (!form.video) return ''
   const size = form.video.size / 1024 / 1024
@@ -30,13 +30,31 @@ watch(() => form.video, (file) => {
   videoPreview.value = file ? URL.createObjectURL(file) : ''
 })
 watch(() => form.cover, (file) => { if (coverPreview.value) URL.revokeObjectURL(coverPreview.value); coverPreview.value = file ? URL.createObjectURL(file) : '' })
-onUnmounted(() => { if (videoPreview.value) URL.revokeObjectURL(videoPreview.value); if (coverPreview.value) URL.revokeObjectURL(coverPreview.value) })
+
+function onBeforeUnload(event: BeforeUnloadEvent) {
+  if (!busy.value) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+onMounted(() => window.addEventListener('beforeunload', onBeforeUnload))
+onBeforeRouteLeave(() => {
+  if (!busy.value) return true
+  toast.info('视频正在上传，请等待发布完成后再离开')
+  return false
+})
+onUnmounted(() => {
+  window.removeEventListener('beforeunload', onBeforeUnload)
+  if (videoPreview.value) URL.revokeObjectURL(videoPreview.value)
+  if (coverPreview.value) URL.revokeObjectURL(coverPreview.value)
+})
 
 function choose(event: Event, type: 'video' | 'cover') {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0] ?? null
   input.value = ''
   if (type === 'video' && file && (!isSupportedVideo(file) || file.size > 200 * 1024 * 1024)) return toast.error('支持 MP4、MOV、M4V、WebM、3GP，最大 200MB')
+  if (type === 'cover' && file && !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) return toast.error('封面仅支持 JPG、PNG 或 WebP')
   if (type === 'cover' && file && file.size > 10 * 1024 * 1024) return toast.error('封面不能超过 10MB')
   form[type] = file
 }
@@ -66,6 +84,9 @@ async function publish() {
       cover_object_key: cover.object_key,
     })
     toast.success('作品已发布')
+    busy.value = false
+    stage.value = ''
+    uploadProgress.value = 0
     await router.push('/')
   } catch (cause) { toast.error(cause instanceof Error ? cause.message : String(cause)) }
   finally { busy.value = false; stage.value = ''; uploadProgress.value = 0 }
@@ -75,11 +96,11 @@ async function publish() {
 <template>
   <main class="page publish-page">
     <header class="publish-header">
-      <button class="cancel" :disabled="busy" @click="router.back()">取消</button>
+      <button class="cancel" type="button" :disabled="busy" @click="router.back()">取消</button>
       <b>发布作品</b>
-      <button class="submit" :disabled="!canPublish" @click="publish">{{ busy ? stage : '发布' }}</button>
+      <button class="submit" type="button" :disabled="!canPublish" @click="publish">{{ busy ? stage : '发布' }}</button>
     </header>
-    <section v-if="!auth.isLoggedIn" class="login-required"><h2>登录后发布作品</h2><p>分享你的视角，让更多人看见。</p><button @click="router.push('/me')">立即登录</button></section>
+    <section v-if="!auth.isLoggedIn" class="login-required"><h2>登录后发布作品</h2><p>分享你的视角，让更多人看见。</p><button type="button" @click="router.push('/me')">立即登录</button></section>
     <section v-else class="creator">
       <div class="video-picker" :class="{ selected: videoPreview }">
         <video v-if="videoPreview && !previewError" :src="videoPreview" controls playsinline preload="metadata" @error="previewError = true" />
@@ -100,7 +121,7 @@ async function publish() {
       </div>
       <p v-if="videoMeta" class="video-meta">{{ form.video?.name }}<span>{{ videoMeta }}</span></p>
 
-      <section v-if="busy" class="upload-progress" aria-live="polite">
+      <section v-if="busy" class="upload-progress" aria-live="polite" role="progressbar" aria-label="视频发布进度" :aria-valuenow="stage === '上传封面' ? 8 : stage === '发布作品' ? 100 : uploadProgress" aria-valuemin="0" aria-valuemax="100">
         <div><b>{{ stage }}</b><span>{{ stage === '上传视频' ? `${uploadProgress}%` : stage === '发布作品' ? '即将完成' : '准备中' }}</span></div>
         <i><span :style="{ width: `${stage === '上传封面' ? 8 : stage === '发布作品' ? 100 : uploadProgress}%` }" /></i>
         <p>请保持页面打开，上传过程中不要退出。</p>
@@ -119,7 +140,7 @@ async function publish() {
         </label>
         <label class="cover-picker">
           <div class="cover-copy"><span>选择封面</span><p>清晰封面更容易被看见</p></div>
-          <div class="cover-preview"><img v-if="coverPreview" :src="coverPreview" /><span v-else><AppIcon name="plus" :size="20" /></span></div>
+          <div class="cover-preview"><img v-if="coverPreview" :src="coverPreview" alt="已选择的视频封面预览" /><span v-else><AppIcon name="plus" :size="20" /></span></div>
           <input type="file" accept="image/jpeg,image/png,image/webp" @change="choose($event, 'cover')" />
         </label>
       </section>

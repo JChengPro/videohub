@@ -1,4 +1,4 @@
-import { postForm, postJson } from './client'
+import { ApiError, postForm, postJson } from './client'
 import type { MessageResponse, Video } from './types'
 import { useAuthStore } from '../stores/auth'
 
@@ -30,6 +30,41 @@ export function uploadVideo(file: File) {
   const fd = new FormData()
   fd.append('file', file)
   return postForm<UploadResponse>('/video/uploadVideo', fd, { authRequired: true })
+}
+
+function uploadVideoWithProgress(file: File, onProgress?: (pct: number) => void): Promise<UploadResponse> {
+  const auth = useAuthStore()
+  if (!auth.isLoggedIn || !auth.token) return Promise.reject(new ApiError('需要先登录（缺少 token）', 401))
+  const apiBase = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/api'
+  const body = new FormData()
+  body.append('file', file)
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `${apiBase}/video/uploadVideo`)
+    xhr.setRequestHeader('Authorization', `Bearer ${auth.token}`)
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress?.(Math.round((event.loaded / event.total) * 100))
+    }
+    xhr.onerror = () => reject(new ApiError('网络连接异常，视频上传失败', 0))
+    xhr.onabort = () => reject(new ApiError('视频上传已取消', 0))
+    xhr.onload = () => {
+      let data: unknown = null
+      try { data = xhr.responseText ? JSON.parse(xhr.responseText) : null }
+      catch { data = xhr.responseText }
+      if (xhr.status === 401) auth.clearToken()
+      if (xhr.status < 200 || xhr.status >= 300) {
+        const message = data && typeof data === 'object' && 'error' in data && typeof data.error === 'string'
+          ? data.error
+          : `视频上传失败 (${xhr.status})`
+        reject(new ApiError(message, xhr.status, data))
+        return
+      }
+      onProgress?.(100)
+      resolve(data as UploadResponse)
+    }
+    xhr.send(body)
+  })
 }
 
 const CHUNK_SIZE = 5 * 1024 * 1024 // 5MB
@@ -75,8 +110,7 @@ export async function uploadVideoSmart(
   if (file.size > CHUNK_THRESHOLD) {
     return uploadVideoChunked(file, onProgress)
   }
-  if (onProgress) onProgress(100)
-  return uploadVideo(file)
+  return uploadVideoWithProgress(file, onProgress)
 }
 
 export async function uploadVideoChunked(

@@ -28,5 +28,9 @@ export const useAuthStore = defineStore('auth', () => {
     try { localStorage.removeItem(TOKEN_KEY) } catch { /* Keep in-memory logout state. */ }
   }
 
-  return { token, claims, isLoggedIn, setToken, clearToken }
+  function syncFromStorage() {
+    token.value = readToken()
+  }
+
+  return { token, claims, isLoggedIn, setToken, clearToken, syncFromStorage }
 })

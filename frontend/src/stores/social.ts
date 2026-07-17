@@ -17,11 +17,15 @@ export const useSocialStore = defineStore('social', () => {
 
   const followersError = ref('')
   const vloggersError = ref('')
+  let followersRequest = 0
+  let vloggersRequest = 0
 
   const followerCount = computed(() => followers.value.length)
   const followingCount = computed(() => vloggers.value.length)
 
   function clear() {
+    followersRequest += 1
+    vloggersRequest += 1
     followers.value = []
     vloggers.value = []
     followersError.value = ''
@@ -40,16 +44,19 @@ export const useSocialStore = defineStore('social', () => {
       return
     }
 
+    const request = ++followersRequest
     followersLoading.value = true
     followersError.value = ''
     try {
       const res = await socialApi.getAllFollowers(vloggerId)
-      followers.value = res.followers
+      if (request === followersRequest && auth.isLoggedIn) followers.value = res.followers
     } catch (e) {
-      followersError.value = e instanceof ApiError ? e.message : String(e)
-      followers.value = []
+      if (request === followersRequest) {
+        followersError.value = e instanceof ApiError ? e.message : String(e)
+        followers.value = []
+      }
     } finally {
-      followersLoading.value = false
+      if (request === followersRequest) followersLoading.value = false
     }
   }
 
@@ -59,16 +66,19 @@ export const useSocialStore = defineStore('social', () => {
       return
     }
 
+    const request = ++vloggersRequest
     vloggersLoading.value = true
     vloggersError.value = ''
     try {
       const res = await socialApi.getAllVloggers(followerId)
-      vloggers.value = res.vloggers
+      if (request === vloggersRequest && auth.isLoggedIn) vloggers.value = res.vloggers
     } catch (e) {
-      vloggersError.value = e instanceof ApiError ? e.message : String(e)
-      vloggers.value = []
+      if (request === vloggersRequest) {
+        vloggersError.value = e instanceof ApiError ? e.message : String(e)
+        vloggers.value = []
+      }
     } finally {
-      vloggersLoading.value = false
+      if (request === vloggersRequest) vloggersLoading.value = false
     }
   }
 
@@ -106,4 +116,3 @@ export const useSocialStore = defineStore('social', () => {
     unfollow,
   }
 })
-
