@@ -10,6 +10,8 @@ import RegisterView from '../views/RegisterView.vue'
 import SettingsView from '../views/SettingsView.vue'
 import UserProfileView from '../views/UserProfileView.vue'
 import MessagesView from '../views/MessagesView.vue'
+import ChatView from '../views/ChatView.vue'
+import SearchView from '../views/SearchView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -19,6 +21,8 @@ const router = createRouter({
     { path: '/feed', redirect: '/' },
     { path: '/hot', name: 'hot', component: HotView },
     { path: '/messages', name: 'messages', component: MessagesView },
+    { path: '/messages/chat/:peerId?', name: 'chat', component: ChatView },
+    { path: '/search', name: 'search', component: SearchView },
     { path: '/video', name: 'video', component: VideoView },
     { path: '/video/:id', name: 'video-detail', component: VideoDetailView, props: true },
     { path: '/account', name: 'account', component: AccountView },

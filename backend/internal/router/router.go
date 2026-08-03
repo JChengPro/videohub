@@ -4,12 +4,15 @@ import (
 	"backend/internal/account"
 	"backend/internal/cache"
 	"backend/internal/feed"
+	"backend/internal/message"
 	"backend/internal/middleware"
 	"backend/internal/notification"
 	"backend/internal/ratelimit"
+	"backend/internal/realtime"
 	"backend/internal/social"
 	"backend/internal/storage"
 	"backend/internal/video"
+	"context"
 	"time"
 
 	"backend/internal/mq"
@@ -28,6 +31,7 @@ func New(
 
 	loginLimiter := ratelimit.Limit(redisClient, "account_login", 10, time.Minute, ratelimit.KeyByIp)
 	registerLimiter := ratelimit.Limit(redisClient, "account_register", 5, time.Hour, ratelimit.KeyByIp)
+	accountNameLimiter := ratelimit.Limit(redisClient, "account_name_check", 30, time.Minute, ratelimit.KeyByIp)
 
 	likeLimiter := ratelimit.Limit(redisClient, "like_write", 30, time.Minute, ratelimit.KeyByAccount)
 	commentLimiter := ratelimit.Limit(redisClient, "comment_write", 10, time.Minute, ratelimit.KeyByAccount)
@@ -41,16 +45,23 @@ func New(
 	})
 
 	accountRepo := account.NewRepository(db)
-	accountService := account.NewService(accountRepo, redisClient)
+	accountService := account.NewService(accountRepo, redisClient, fileStorage)
 	accountHandler := account.NewHandler(accountService)
+
+	realtimeHub := realtime.NewHub()
+	realtimeTickets := realtime.NewTicketService(redisClient)
+	realtimeDispatcher := realtime.NewDispatcher(redisClient, realtimeHub)
+	go realtime.StartSubscriber(context.Background(), redisClient, realtimeHub)
 
 	accountGroup := r.Group("/account")
 	{
 		accountGroup.POST("/register", registerLimiter, accountHandler.Register)
 		accountGroup.POST("/login", loginLimiter, accountHandler.Login)
-		accountGroup.POST("/changePassword", accountHandler.ChangePassword)
+		accountGroup.POST("/checkAccountName", accountNameLimiter, accountHandler.CheckAccountName)
 		accountGroup.POST("/findByID", accountHandler.FindByID)
 		accountGroup.POST("/findByUsername", accountHandler.FindByUsername)
+		accountGroup.POST("/search", accountHandler.Search)
+		accountGroup.GET("/avatar/:id", accountHandler.Avatar)
 	}
 	protectedAccountGroup := accountGroup.Group("")
 	protectedAccountGroup.Use(middleware.JWTAuth(accountRepo, redisClient))
@@ -58,6 +69,8 @@ func New(
 		protectedAccountGroup.POST("/me", accountHandler.Me)
 		protectedAccountGroup.POST("/logout", accountHandler.Logout)
 		protectedAccountGroup.POST("/rename", accountHandler.Rename)
+		protectedAccountGroup.POST("/changePassword", accountHandler.ChangePassword)
+		protectedAccountGroup.POST("/avatar", accountHandler.UploadAvatar)
 	}
 	videoRepo := video.NewRepository(db)
 	videoService := video.NewService(videoRepo, redisClient, rabbit, fileStorage)
@@ -84,7 +97,7 @@ func New(
 	likeRepo := video.NewLikeRepository(db)
 
 	feedRepo := feed.NewRepository(db)
-	feedService := feed.NewService(feedRepo, redisClient, likeRepo, fileStorage)
+	feedService := feed.NewService(feedRepo, redisClient, likeRepo, videoRepo, fileStorage)
 	feedHandler := feed.NewHandler(feedService)
 	feedGroup := r.Group("/feed")
 	feedGroup.Use(middleware.SoftJWTAuth(accountRepo, redisClient))
@@ -149,6 +162,34 @@ func New(
 		notificationGroup.POST("/markRead", notificationHandler.MarkRead)
 		notificationGroup.POST("/markAllRead", notificationHandler.MarkAllRead)
 	}
+
+	messageRepo := message.NewRepository(db)
+	messageService := message.NewService(messageRepo, accountRepo, redisClient)
+	messageHandler := message.NewHandler(
+		messageService,
+		realtimeTickets,
+		realtimeHub,
+		realtimeDispatcher,
+	)
+	messageGroup := r.Group("/message")
+	messageGroup.Use(middleware.JWTAuth(accountRepo, redisClient))
+	{
+		messageGroup.POST("/listConversations", messageHandler.ListConversations)
+		messageGroup.POST("/listMessages", messageHandler.ListMessages)
+		messageGroup.POST("/send", messageHandler.Send)
+		messageGroup.POST("/markRead", messageHandler.MarkRead)
+		messageGroup.POST("/accept", messageHandler.Accept)
+		messageGroup.POST("/reject", messageHandler.Reject)
+		messageGroup.POST("/block", messageHandler.Block)
+		messageGroup.POST("/unblock", messageHandler.Unblock)
+		messageGroup.POST("/unreadCount", messageHandler.UnreadCount)
+	}
+	realtimeGroup := r.Group("/realtime")
+	realtimeGroup.Use(middleware.JWTAuth(accountRepo, redisClient))
+	{
+		realtimeGroup.POST("/wsTicket", messageHandler.IssueTicket)
+	}
+	r.GET("/ws", messageHandler.WebSocket)
 
 	if rabbit != nil {
 		mqHandler := mq.NewHandler(rabbit)

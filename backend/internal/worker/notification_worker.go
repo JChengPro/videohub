@@ -4,8 +4,10 @@ import (
 	"backend/internal/cache"
 	"backend/internal/mq"
 	"backend/internal/notification"
+	"backend/internal/realtime"
 	"context"
 	"fmt"
+	"log"
 	"time"
 )
 
@@ -33,7 +35,7 @@ func (w *NotificationWorker) Handle(ctx context.Context, event mq.NotificationEv
 
 	// Redis 冷却 key 只是一张“30 秒内不要再次通知”的临时纸条。
 	// notifications 表中的这条记录才是用户最终能看到的正式通知。
-	err := w.repo.CreateOnce(ctx, &notification.Notification{
+	item := &notification.Notification{
 		ReceiverID: event.ReceiverID,
 		ActorID:    event.ActorID,
 		Type:       event.Type,
@@ -41,7 +43,8 @@ func (w *NotificationWorker) Handle(ctx context.Context, event mq.NotificationEv
 		TargetID:   event.TargetID,
 		Content:    event.Content,
 		DedupKey:   event.DedupKey,
-	})
+	}
+	inserted, err := w.repo.CreateOnce(ctx, item)
 
 	if err != nil && ownsCooldown {
 		// ownsCooldown=true 表示 Redis 中的冷却 key 是当前事件刚创建的，
@@ -59,6 +62,22 @@ func (w *NotificationWorker) Handle(ctx context.Context, event mq.NotificationEv
 			event.ActorID,
 			event.TargetID,
 		))
+	}
+	if err == nil && inserted && w.cache != nil {
+		push := realtime.NewEvent("notification.new", map[string]any{
+			"id":          item.ID,
+			"actor_id":    item.ActorID,
+			"type":        item.Type,
+			"target_type": item.TargetType,
+			"target_id":   item.TargetID,
+			"content":     item.Content,
+			"is_read":     false,
+			"create_time": item.CreateTime,
+		})
+		if publishErr := realtime.Publish(ctx, w.cache, item.ReceiverID, push); publishErr != nil {
+			// 实时推送失败不回滚正式通知，用户稍后仍可从通知列表读取。
+			log.Printf("publish realtime notification failed: %v", publishErr)
+		}
 	}
 	return err
 }

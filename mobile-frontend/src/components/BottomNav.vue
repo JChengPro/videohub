@@ -4,16 +4,18 @@ import { useRoute } from 'vue-router'
 import AppIcon from './AppIcon.vue'
 import { useAuthStore } from '../stores/auth'
 import { useNotificationStore } from '../stores/notification'
+import { useChatStore } from '../stores/chat'
 
 const route = useRoute()
 const auth = useAuthStore()
 const notifications = useNotificationStore()
+const chat = useChatStore()
 
 const items = computed(() => [
   { to: '/', icon: 'home', label: '首页' },
   { to: '/hot', icon: 'hot', label: '热门' },
   { to: '/publish', icon: 'plus', label: '发布', create: true },
-  { to: '/messages', icon: 'message', label: '消息', badge: notifications.unread },
+  { to: '/messages', icon: 'message', label: '消息', badge: notifications.unread + chat.unread },
   { to: '/me', icon: 'user', label: auth.isLoggedIn ? '我' : '登录' },
 ])
 
@@ -42,19 +44,19 @@ watch(() => auth.isLoggedIn, async (loggedIn) => {
   right: 0;
   bottom: 0;
   left: 0;
-  height: calc(64px + env(safe-area-inset-bottom));
-  padding: 6px 8px env(safe-area-inset-bottom);
+  height: calc(58px + env(safe-area-inset-bottom));
+  padding: 4px 8px env(safe-area-inset-bottom);
   display: grid;
   grid-template-columns: repeat(5, 1fr);
   border-top: 1px solid var(--mobile-border);
-  background: rgba(11, 11, 13, .92);
+  background: rgba(0, 0, 0, .94);
   backdrop-filter: blur(20px) saturate(125%);
 }
 
 .bottom-nav a {
   position: relative;
   min-width: 44px;
-  min-height: 50px;
+  min-height: 48px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -68,19 +70,9 @@ watch(() => auth.isLoggedIn, async (loggedIn) => {
   color: var(--mobile-text);
 }
 
-.bottom-nav a.active:not(.create)::after {
-  position: absolute;
-  bottom: 1px;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--mobile-accent);
-  content: '';
-}
-
 .bottom-nav small {
-  font-size: 10px;
-  font-weight: 650;
+  font-size: 9px;
+  font-weight: 700;
 }
 
 .nav-icon {
@@ -93,11 +85,11 @@ watch(() => auth.isLoggedIn, async (loggedIn) => {
 .create .nav-icon {
   width: 46px;
   height: 30px;
-  border: 1px solid rgba(255, 255, 255, .75);
-  border-radius: 9px;
-  background: #f4f4f5;
-  color: #111114;
-  box-shadow: 3px 0 0 var(--mobile-accent);
+  border: 0;
+  border-radius: 7px;
+  background: #f5f5f7;
+  color: #08080a;
+  box-shadow: -3px 0 0 var(--mobile-cyan), 3px 0 0 var(--mobile-accent);
 }
 
 .badge {

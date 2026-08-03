@@ -31,10 +31,14 @@ export const useNotificationStore = defineStore('notification', () => {
     unread.value = 0
   }
 
+  function increment() {
+    unread.value += 1
+  }
+
   function clear() {
     request += 1
     unread.value = 0
   }
 
-  return { unread, refresh, readOne, readAll, clear }
+  return { unread, refresh, readOne, readAll, increment, clear }
 })

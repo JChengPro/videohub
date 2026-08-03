@@ -86,6 +86,9 @@ func (s *Service) Detail(ctx context.Context, id uint) (*Video, error) {
 				if err := RefreshAccessURLs(ctx, s.fileStorage, &video); err != nil {
 					return nil, err
 				}
+				if err := s.refreshCommentCount(ctx, &video); err != nil {
+					return nil, err
+				}
 				return &video, nil
 			}
 		}
@@ -99,6 +102,9 @@ func (s *Service) Detail(ctx context.Context, id uint) (*Video, error) {
 		if err := RefreshAccessURLs(ctx, s.fileStorage, video); err != nil {
 			return nil, err
 		}
+		if err := s.refreshCommentCount(ctx, video); err != nil {
+			return nil, err
+		}
 		return video, nil
 	}
 	s.detailLoadMu.Lock()
@@ -110,6 +116,9 @@ func (s *Service) Detail(ctx context.Context, id uint) (*Video, error) {
 		var video Video
 		if err := json.Unmarshal([]byte(cached), &video); err == nil {
 			if err := RefreshAccessURLs(ctx, s.fileStorage, &video); err != nil {
+				return nil, err
+			}
+			if err := s.refreshCommentCount(ctx, &video); err != nil {
 				return nil, err
 			}
 			return &video, nil
@@ -129,6 +138,9 @@ func (s *Service) Detail(ctx context.Context, id uint) (*Video, error) {
 	if err := RefreshAccessURLs(ctx, s.fileStorage, video); err != nil {
 		return nil, err
 	}
+	if err := s.refreshCommentCount(ctx, video); err != nil {
+		return nil, err
+	}
 
 	return video, nil
 }
@@ -141,12 +153,30 @@ func (s *Service) ListByAuthor(ctx context.Context, authorID uint) ([]Video, err
 	if err != nil {
 		return nil, err
 	}
+	ids := make([]uint, len(videos))
 	for i := range videos {
+		ids[i] = videos[i].ID
+	}
+	commentCounts, err := s.repo.CommentCounts(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for i := range videos {
+		videos[i].CommentsCount = commentCounts[videos[i].ID]
 		if err := RefreshAccessURLs(ctx, s.fileStorage, &videos[i]); err != nil {
 			return nil, err
 		}
 	}
 	return videos, nil
+}
+
+func (s *Service) refreshCommentCount(ctx context.Context, target *Video) error {
+	count, err := s.repo.CommentCount(ctx, target.ID)
+	if err != nil {
+		return err
+	}
+	target.CommentsCount = count
+	return nil
 }
 
 func (s *Service) deleteDetailCache(ctx context.Context, videoID uint) error {

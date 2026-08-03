@@ -23,6 +23,7 @@ type Video struct {
 	CoverObjectKey string    `gorm:"type:varchar(500);not null;default:''" json:"cover_object_key"`
 	CreateTime     time.Time `gorm:"autoCreateTime" json:"create_time"`
 	LikesCount     int64     `gorm:"column:likes_count;not null;default:0" json:"likes_count"`
+	CommentsCount  int64     `gorm:"-" json:"comments_count"`
 	Popularity     int64     `gorm:"column:popularity;not null;default:0" json:"popularity"`
 	Status         string    `gorm:"type:varchar(20);not null;default:published;index" json:"status"`
 }

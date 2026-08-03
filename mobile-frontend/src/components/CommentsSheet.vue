@@ -6,14 +6,16 @@ import { api } from '../api'
 import type { Comment, FeedVideo } from '../api/types'
 import { useAuthStore } from '../stores/auth'
 import { useToastStore } from '../stores/toast'
+import { useDialogStore } from '../stores/dialog'
 import AppIcon from './AppIcon.vue'
 import Avatar from './Avatar.vue'
 
 const props = defineProps<{ video: FeedVideo }>()
-const emit = defineEmits<{ close: [] }>()
+const emit = defineEmits<{ close: []; countChange: [count: number] }>()
 const auth = useAuthStore()
 const toast = useToastStore()
 const router = useRouter()
+const dialog = useDialogStore()
 
 const sheetElement = ref<HTMLElement | null>(null)
 const inputElement = ref<HTMLInputElement | null>(null)
@@ -43,7 +45,10 @@ async function load() {
   error.value = ''
   try {
     const nextComments = await api.comments(props.video.id)
-    if (active && request === requestId) comments.value = nextComments
+    if (active && request === requestId) {
+      comments.value = nextComments
+      emit('countChange', nextComments.length)
+    }
   } catch (cause) {
     if (active && request === requestId) error.value = errorMessage(cause)
   } finally {
@@ -75,11 +80,17 @@ async function submit() {
 
 async function remove(item: Comment) {
   if (deletingId.value || submitting.value) return
-  if (!window.confirm('确认删除这条评论？')) return
+  if (!await dialog.ask({
+    title: '删除这条评论？',
+    message: '评论删除后无法恢复。',
+    confirmLabel: '删除评论',
+    tone: 'danger',
+  })) return
   deletingId.value = item.id
   try {
     await api.deleteComment(item.id)
     comments.value = comments.value.filter((comment) => comment.id !== item.id)
+    emit('countChange', comments.value.length)
     toast.info('评论已删除')
   } catch (cause) {
     toast.error(errorMessage(cause))
@@ -94,9 +105,14 @@ async function openAuthor(authorId: number) {
 }
 
 function formatDate(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleString()
+  const time = new Date(value).getTime()
+  if (!Number.isFinite(time)) return ''
+  const seconds = Math.max(0, Math.floor((Date.now() - time) / 1000))
+  if (seconds < 60) return '刚刚'
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} 小时前`
+  if (seconds < 604800) return `${Math.floor(seconds / 86400)} 天前`
+  return new Date(time).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
 }
 
 function onKeydown(event: KeyboardEvent) {
@@ -155,8 +171,8 @@ onUnmounted(() => {
       <div class="drag-handle" aria-hidden="true"><span /></div>
       <header>
         <div>
-          <strong id="comments-sheet-title">评论</strong>
-          <small v-if="!loading">{{ comments.length }} 条</small>
+          <span><small>DISCUSSION</small><strong id="comments-sheet-title">评论</strong></span>
+          <b v-if="!loading">{{ comments.length }}</b>
         </div>
         <button type="button" aria-label="关闭评论" @click="close"><AppIcon name="close" /></button>
       </header>
@@ -179,7 +195,7 @@ onUnmounted(() => {
 
         <article v-for="item in comments" v-else :key="item.id">
           <button class="comment-avatar" type="button" :aria-label="`查看 ${item.username} 的主页`" @click="openAuthor(item.author_id)">
-            <Avatar :name="item.username" :size="38" />
+            <Avatar :name="item.username" :id="item.author_id" :size="38" />
           </button>
           <div class="comment-copy">
             <button type="button" class="comment-author" @click="openAuthor(item.author_id)">{{ item.username }}</button>
@@ -200,7 +216,7 @@ onUnmounted(() => {
       </div>
 
       <form @submit.prevent="submit">
-        <Avatar :name="auth.claims?.username ?? '游客'" :size="34" />
+        <Avatar :name="auth.claims?.username ?? '游客'" :id="auth.claims?.account_id" :size="34" />
         <input
           ref="inputElement"
           v-model="content"
@@ -241,7 +257,7 @@ onUnmounted(() => {
   overflow: hidden;
   border: 1px solid var(--mobile-border);
   border-bottom: 0;
-  border-radius: 22px 22px 0 0;
+  border-radius: 14px 14px 0 0;
   background: var(--mobile-overlay);
   box-shadow: var(--mobile-shadow);
   touch-action: pan-y;
@@ -270,18 +286,14 @@ header {
 
 header > div {
   display: flex;
-  align-items: baseline;
-  gap: 7px;
+  align-items: center;
+  gap: 9px;
 }
 
-header strong {
-  font-size: 14px;
-}
-
-header small {
-  color: var(--mobile-text-muted);
-  font-size: 10px;
-}
+header > div > span { display: grid; gap: 1px; }
+header strong { font-size: 15px; }
+header small { color: var(--mobile-accent); font-size: 7px; font-weight: 900; letter-spacing: .16em; }
+header b { min-width: 25px; height: 25px; display: grid; place-items: center; border-radius: 999px; background: var(--mobile-accent-dim); color: var(--mobile-accent); font-size: 9px; }
 
 header > button {
   width: 44px;
@@ -294,7 +306,7 @@ header > button {
 .comments {
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 8px 16px 18px;
+  padding: 10px 14px 18px;
 }
 
 .sheet-state {
@@ -332,11 +344,10 @@ header > button {
 }
 
 article {
-  padding: 11px 0;
+  padding: 6px 0;
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) 40px;
+  grid-template-columns: 38px minmax(0, 1fr) 34px;
   gap: 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, .055);
 }
 
 .comment-avatar {
@@ -345,13 +356,18 @@ article {
 
 .comment-copy {
   min-width: 0;
+  padding: 7px 2px 11px;
+  border: 0;
+  border-bottom: 1px solid var(--mobile-border);
+  border-radius: 0;
+  background: transparent;
 }
 
 .comment-author {
   min-height: 22px;
-  color: var(--mobile-text-secondary);
+  color: var(--mobile-text);
   font-size: 11px;
-  font-weight: 750;
+  font-weight: 800;
 }
 
 .comment-copy p {
@@ -371,8 +387,8 @@ article {
 }
 
 .delete-comment {
-  width: 40px;
-  height: 40px;
+  width: 34px;
+  height: 34px;
   display: grid;
   place-items: center;
   color: var(--mobile-text-muted);
@@ -393,7 +409,7 @@ input {
   height: 42px;
   padding: 0 14px;
   border: 1px solid transparent;
-  border-radius: 22px;
+  border-radius: 7px;
   outline: 0;
   background: var(--mobile-surface-raised);
   color: var(--mobile-text);
@@ -411,6 +427,9 @@ form button {
   place-items: center;
   color: var(--mobile-accent);
 }
+
+header b,
+.sheet-state > button { border-radius: 7px; }
 
 @keyframes sheet-in {
   from { transform: translateY(100%); }

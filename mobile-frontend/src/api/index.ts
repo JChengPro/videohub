@@ -1,5 +1,18 @@
 import { useAuthStore } from '../stores/auth'
-import type { Account, Comment, FeedVideo, MessageResponse, Notification, PublishVideoInput, TokenResponse, Video } from './types'
+import type {
+  Account,
+  ChatMessage,
+  Comment,
+  Conversation,
+  FeedVideo,
+  MessageResponse,
+  Notification,
+  PublishVideoInput,
+  SendMessageResponse,
+  SearchUsersResponse,
+  TokenResponse,
+  Video,
+} from './types'
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/api'
 
@@ -150,12 +163,21 @@ function normalizeFeed<T extends { video_list?: FeedVideo[] | null }>(response: 
 }
 
 export const api = {
-  login: (username: string, password: string) => request<TokenResponse>('/account/login', { username, password }),
-  register: (username: string, password: string) => request<MessageResponse>('/account/register', { username, password }),
+  login: (accountName: string, password: string) => request<TokenResponse>('/account/login', { account_name: accountName, password }),
+  register: (accountName: string, username: string, password: string) =>
+    request<MessageResponse>('/account/register', { account_name: accountName, username, password }),
+  checkAccountName: (accountName: string) =>
+    request<{ account_name: string; available: boolean }>('/account/checkAccountName', { account_name: accountName }),
+  me: () => request<Account>('/account/me', {}, true),
   logout: () => request<MessageResponse>('/account/logout', {}, true),
   rename: (newUsername: string) => request<TokenResponse>('/account/rename', { new_username: newUsername }, true),
-  changePassword: (username: string, oldPassword: string, newPassword: string) =>
-    request<MessageResponse>('/account/changePassword', { username, old_password: oldPassword, new_password: newPassword }),
+  changePassword: (oldPassword: string, newPassword: string) =>
+    request<MessageResponse>('/account/changePassword', { old_password: oldPassword, new_password: newPassword }, true),
+  uploadAvatar: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return formRequest<{ avatar_url: string }>('/account/avatar', form)
+  },
   latest: (latestTime = 0) =>
     request<{ video_list: FeedVideo[]; next_time: number; has_more: boolean }>('/feed/listLatest', { limit: 12, latest_time: latestTime }).then(normalizeFeed),
   followingFeed: (latestTime = 0) =>
@@ -177,6 +199,8 @@ export const api = {
   videosByAuthor: (id: number) => request<Video[] | null>('/video/listByAuthorID', { author_id: id }).then((v) => v ?? []),
   videoDetail: (id: number) => request<Video>('/video/getDetail', { id }),
   accountById: (id: number) => request<Account>('/account/findByID', { id }),
+  searchUsers: (query: string, limit = 20, offset = 0) =>
+    request<SearchUsersResponse>('/account/search', { query, limit, offset }),
   likedVideos: () => request<Video[] | null>('/like/listMyLikedVideos', {}, true).then((value) => value ?? []),
   deleteVideo: (id: number) => request<MessageResponse>('/video/delete', { id }, true),
   notifications: (beforeId = 0) =>
@@ -185,6 +209,34 @@ export const api = {
   unread: () => request<{ count: number }>('/notification/unreadCount', {}, true),
   markRead: (id: number) => request<MessageResponse>('/notification/markRead', { id }, true),
   markAllRead: () => request<MessageResponse>('/notification/markAllRead', {}, true),
+  conversations: () => request<{ conversations: Conversation[] | null }>('/message/listConversations', {}, true)
+    .then((value) => ({ conversations: value.conversations ?? [] })),
+  chatMessages: (conversationId: number, beforeId = 0) =>
+    request<{ messages: ChatMessage[] | null; has_more: boolean; next_before_id: number }>(
+      '/message/listMessages',
+      { conversation_id: conversationId, before_id: beforeId, limit: 30 },
+      true,
+    ).then((value) => ({ ...value, messages: value.messages ?? [] })),
+  sendChatMessage: (receiverId: number, clientMessageId: string, content: string) =>
+    request<SendMessageResponse>(
+      '/message/send',
+      { receiver_id: receiverId, client_message_id: clientMessageId, content },
+      true,
+    ),
+  markChatRead: (conversationId: number, messageId = 0) =>
+    request<{ conversation_id: number; read_message_id: number; peer_id: number; unread_count: number }>(
+      '/message/markRead',
+      { conversation_id: conversationId, message_id: messageId },
+      true,
+    ),
+  acceptConversation: (conversationId: number) =>
+    request<MessageResponse>('/message/accept', { conversation_id: conversationId }, true),
+  rejectConversation: (conversationId: number) =>
+    request<MessageResponse>('/message/reject', { conversation_id: conversationId }, true),
+  blockUser: (userId: number) => request<MessageResponse>('/message/block', { user_id: userId }, true),
+  unblockUser: (userId: number) => request<MessageResponse>('/message/unblock', { user_id: userId }, true),
+  chatUnread: () => request<{ count: number }>('/message/unreadCount', {}, true),
+  wsTicket: () => request<{ ticket: string; expires_in: number }>('/realtime/wsTicket', {}, true),
   uploadCover: (file: File) => {
     const form = new FormData()
     form.append('file', file)

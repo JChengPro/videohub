@@ -4,13 +4,17 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useSocialStore } from '../stores/social'
 import { useNotificationStore } from '../stores/notification'
+import { useChatStore } from '../stores/chat'
 import Toaster from './Toaster.vue'
+import AppIcon from './AppIcon.vue'
+import UserAvatar from './UserAvatar.vue'
 
 const props = defineProps<{ full?: boolean }>()
 
 const auth = useAuthStore()
 const social = useSocialStore()
 const notifications = useNotificationStore()
+const chat = useChatStore()
 const router = useRouter()
 const route = useRoute()
 
@@ -39,7 +43,8 @@ const userLabel = computed(() => {
 
 async function onSearch() {
   const q = search.value.trim()
-  await router.push({ path: '/', query: q ? { q } : {} })
+  if (!q) return
+  await router.push({ path: '/search', query: { q } })
 }
 
 function syncAuthFromStorage(event: StorageEvent) {
@@ -52,59 +57,60 @@ onBeforeUnmount(() => window.removeEventListener('storage', syncAuthFromStorage)
 
 <template>
   <div class="shell">
+    <a class="skip-link" href="#main-content">跳到主要内容</a>
     <aside class="sidebar" aria-label="主导航">
       <RouterLink class="logo" to="/" aria-label="VideoHub 首页">
-        <span class="logo-icon">VH</span>
+        <span class="logo-icon"><AppIcon name="brand" :size="29" /></span>
         <span class="logo-text">VideoHub</span>
       </RouterLink>
 
       <nav class="nav" aria-label="内容导航">
         <RouterLink class="nav-item" to="/" exact-active-class="router-link-active">
-          <svg viewBox="0 0 24 24" fill="none"><path d="m4 10 8-7 8 7v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-9Z"/><path d="M9 21v-7h6v7"/></svg>
-          <span>首页</span>
-        </RouterLink>
-        <RouterLink class="nav-item" to="/following">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6m3-3h-6"/></svg>
-          <span>关注</span>
+          <AppIcon name="home" :size="23" :filled="route.path === '/'" />
+          <span>推荐</span>
         </RouterLink>
         <RouterLink class="nav-item" to="/hot">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M12 22c4.4 0 8-3.3 8-7.8 0-3.3-1.8-6.2-5.3-8.8.1 2.8-1.2 4.2-2.7 4.9.1-3.4-1.8-6.4-5-8.3.3 4.6-3 6.7-3 12.2C4 18.7 7.6 22 12 22Z"/><path d="M9.5 18.5c-1.1-2.4.2-4.1 2.5-6.1.1 2 1.5 2.9 2.5 4.2"/></svg>
-          <span>热榜</span>
+          <AppIcon name="hot" :size="23" />
+          <span>热门</span>
+        </RouterLink>
+        <RouterLink class="nav-item" to="/following">
+          <AppIcon name="following" :size="23" />
+          <span>关注</span>
         </RouterLink>
         <RouterLink class="nav-item" to="/messages">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M20 15a2 2 0 0 1-2 2H8l-4 4v-16a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10Z"/><path d="M8 8h8M8 12h5"/></svg>
+          <AppIcon name="message" :size="23" />
           <span>消息</span>
-          <b v-if="notifications.unread > 0" class="nav-badge">{{ notifications.unread > 99 ? '99+' : notifications.unread }}</b>
+          <b v-if="notifications.unread + chat.unread > 0" class="nav-badge">{{ notifications.unread + chat.unread > 99 ? '99+' : notifications.unread + chat.unread }}</b>
         </RouterLink>
         <RouterLink class="nav-item" to="/video">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14m-7-7h14"/><rect x="3" y="3" width="18" height="18" rx="5"/></svg>
-          <span>发布视频</span>
+          <AppIcon name="upload" :size="23" />
+          <span>发布</span>
         </RouterLink>
         <RouterLink class="nav-item" to="/account">
-          <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
-          <span>个人中心</span>
+          <AppIcon name="user" :size="23" />
+          <span>个人主页</span>
         </RouterLink>
       </nav>
 
       <div class="sidebar-foot">
-        <div v-if="auth.isLoggedIn" class="user-info">
-          <span class="user-dot ok" />
-          <span class="user-name">{{ userLabel }}</span>
-        </div>
-        <RouterLink v-if="!auth.isLoggedIn" class="login-btn" to="/account">登录 / 注册</RouterLink>
-        <RouterLink v-else class="login-btn" to="/settings">账号设置</RouterLink>
+        <RouterLink v-if="auth.isLoggedIn" class="account-chip" to="/settings">
+          <UserAvatar :username="userLabel" :id="auth.claims?.account_id ?? 0" :size="36" />
+          <span><b>@{{ userLabel }}</b><small>账号与设置</small></span>
+          <AppIcon name="more" :size="18" />
+        </RouterLink>
+        <RouterLink v-else class="login-btn" to="/account">登录 VideoHub</RouterLink>
       </div>
     </aside>
 
-    <main class="main">
+    <main id="main-content" class="main">
       <header class="topbar">
         <form class="search-box" role="search" @submit.prevent="onSearch">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
-          <input v-model="search" aria-label="搜索视频或作者" autocomplete="off" placeholder="搜索视频或作者" />
+          <AppIcon name="search" :size="19" />
+          <input v-model="search" aria-label="搜索用户或视频" autocomplete="off" placeholder="搜索用户或视频" />
           <button class="search-submit" type="submit" aria-label="提交搜索">搜索</button>
         </form>
         <RouterLink v-if="auth.isLoggedIn" class="publish-btn" to="/video">
-          <span aria-hidden="true">+</span> 发布
+          <AppIcon name="upload" :size="18" /> 上传
         </RouterLink>
       </header>
 
@@ -452,5 +458,48 @@ onBeforeUnmount(() => window.removeEventListener('storage', syncAuthFromStorage)
   .publish-btn { display: none; }
   .search-submit { display: none; }
   .search-box input { padding-right: 14px; }
+}
+</style>
+
+<style scoped>
+.skip-link { position: fixed; z-index: 10000; top: 8px; left: 12px; padding: 9px 14px; border-radius: 8px; background: #fff; color: #111; font-weight: 800; transform: translateY(-150%); transition: transform 160ms ease; }
+.skip-link:focus { transform: translateY(0); }
+.shell { grid-template-columns: 240px minmax(0, 1fr); background: #0b0b0d; }
+.sidebar { padding: 22px 14px 16px; gap: 28px; border-right-color: rgba(255,255,255,.08); background: #0b0b0d; }
+.logo { min-height: 50px; padding: 6px 10px; gap: 11px; }
+.logo-icon { width: 34px; height: 34px; border-radius: 0; background: transparent; box-shadow: none; }
+.logo-text { font-size: 21px; font-weight: 900; letter-spacing: -.045em; }
+.nav { gap: 3px; }
+.nav-item { min-height: 50px; padding: 0 13px; gap: 14px; border-radius: 9px; color: #d7d7dc; font-size: 15px; font-weight: 650; }
+.nav-item:hover { background: #1c1c20; color: #fff; }
+.nav-item.router-link-active { background: #202024; color: #fff; font-weight: 850; }
+.nav-item.router-link-active::before { display: none; }
+.nav-item :deep(svg) { transition: color 160ms ease; }
+.nav-item.router-link-active :deep(svg) { color: #fe2c55; }
+.nav-badge { min-width: 20px; height: 20px; border: 2px solid #202024; font-size: 9px; font-weight: 850; }
+.sidebar-foot { padding-top: 14px; }
+.account-chip { min-width: 0; padding: 9px 8px; display: grid; grid-template-columns: 36px minmax(0,1fr) 18px; align-items: center; gap: 9px; border-radius: 10px; transition: background 160ms ease; }
+.account-chip:hover { background: #1c1c20; color: #fff; }
+.account-chip > span { min-width: 0; }
+.account-chip b,.account-chip small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-chip b { font-size: 12px; }.account-chip small { margin-top: 2px; color: #77777f; font-size: 9px; }
+.login-btn { min-height: 44px; padding: 11px 14px; border: 0; border-radius: 7px; background: #fe2c55; color: #fff; font-weight: 800; }
+.login-btn:hover { background: #ea1d48; color: #fff; }
+.topbar { height: 62px; justify-content: center; padding: 0 22px; border-bottom-color: rgba(255,255,255,.075); background: rgba(11,11,13,.92); }
+.search-box { max-width: 500px; }
+.search-box > :deep(svg) { position: absolute; z-index: 1; top: 50%; left: 15px; transform: translateY(-50%); color: #77777f; }
+.search-box input { height: 42px; padding: 0 64px 0 43px; border: 1px solid transparent; border-radius: 6px; background: #1d1d21; }
+.search-box input:focus { border-color: rgba(255,255,255,.25); box-shadow: none; background: #232328; }
+.search-submit { top: 5px; right: 5px; height: 32px; color: #a7a7ae; font-weight: 700; }
+.publish-btn { min-height: 40px; padding: 0 16px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid rgba(255,255,255,.18); border-radius: 6px; background: #fff; color: #111; font-size: 13px; font-weight: 850; }
+.publish-btn:hover { background: #ececef; color: #111; }
+@media (max-width: 1180px) and (min-width: 769px) {
+  .shell { grid-template-columns: 76px minmax(0,1fr); }
+  .nav-item :deep(svg) { width: 24px; height: 24px; }
+}
+@media (max-width: 768px) {
+  .sidebar { background: rgba(11,11,13,.96); }
+  .nav-item { font-size: 9px; }
+  .topbar { background: rgba(11,11,13,.94); }
 }
 </style>

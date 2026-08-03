@@ -191,6 +191,42 @@ func (r *Repository) ListByAuthorID(ctx context.Context, authorID uint) ([]Video
 	return videos, nil
 }
 
+func (r *Repository) CommentCount(ctx context.Context, videoID uint) (int64, error) {
+	var count int64
+	err := r.db.WithContext(ctx).
+		Model(&Comment{}).
+		Where("video_id = ?", videoID).
+		Count(&count).
+		Error
+	return count, err
+}
+
+func (r *Repository) CommentCounts(ctx context.Context, videoIDs []uint) (map[uint]int64, error) {
+	counts := make(map[uint]int64, len(videoIDs))
+	if len(videoIDs) == 0 {
+		return counts, nil
+	}
+
+	var rows []struct {
+		VideoID uint  `gorm:"column:video_id"`
+		Count   int64 `gorm:"column:count"`
+	}
+	err := r.db.WithContext(ctx).
+		Model(&Comment{}).
+		Select("video_id, COUNT(*) AS count").
+		Where("video_id IN ?", videoIDs).
+		Group("video_id").
+		Scan(&rows).
+		Error
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		counts[row.VideoID] = row.Count
+	}
+	return counts, nil
+}
+
 // 已经无用 点赞事务版里暂时不需要通过 videoRepo.ChangeLikesCount() 来更新点赞数 点赞数更新直接写在 like_repo.go 的事务里
 func (r *Repository) ChangeLikesCount(ctx context.Context, videoID uint, delta int64) error {
 	return r.db.WithContext(ctx).Model(&Video{}).

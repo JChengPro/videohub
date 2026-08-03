@@ -1191,4 +1191,26 @@ async function onPublish() {
     animation-duration: .01ms !important;
   }
 }
+
+.creator-page { width: min(1100px, 100%); }
+.creator-header { padding: 8px 2px 24px; border-bottom: 1px solid var(--border); }
+.creator-header h1 { font-weight: 850; }
+.publish-studio { margin-top: 20px; grid-template-columns: minmax(0,1fr) 280px; gap: 12px; }
+.studio-main,
+.side-card { border-color: transparent; border-radius: 8px; }
+.video-dropzone { border-radius: 8px; background: #1b1b1e; }
+.studio-side { gap: 8px; }
+.side-card { padding: 18px; }
+.publish-actions {
+  left: 240px;
+  min-height: 66px;
+  padding: 10px max(24px, calc((100vw - 240px - 1100px) / 2));
+  background: rgba(11,11,13,.96);
+}
+@media (max-width: 1180px) {
+  .publish-actions { left: 76px; }
+}
+@media (max-width: 768px) {
+  .publish-actions { left: 0; }
+}
 </style>

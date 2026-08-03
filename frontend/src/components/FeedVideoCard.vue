@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { FeedVideoItem } from '../api/types'
+import AppIcon from './AppIcon.vue'
 
 const props = defineProps<{
   item: FeedVideoItem
@@ -21,14 +22,15 @@ function onToggle() {
     <RouterLink class="cover" :to="`/video/${item.id}`">
       <img :src="item.cover_url" :alt="item.title" loading="lazy" />
       <div class="play-icon">
-        <svg width="36" height="36" viewBox="0 0 36 36" fill="none"><circle cx="18" cy="18" r="18" fill="rgba(0,0,0,0.5)"/><polygon points="15,11 26,18 15,25" fill="#fff"/></svg>
+        <AppIcon name="play" :size="17" />
       </div>
     </RouterLink>
     <div class="info">
       <RouterLink class="title" :to="`/video/${item.id}`">{{ item.title }}</RouterLink>
-      <RouterLink class="author" :to="`/u/${item.author.id}`">@{{ item.author.username }}</RouterLink>
+      <RouterLink class="author" :to="`/u/${item.author.id}`">{{ item.author.username }}</RouterLink>
       <div class="meta">
         <span>{{ item.likes_count }} 赞</span>
+        <span>{{ item.comments_count }} 评论</span>
         <span>{{ new Date(item.create_time).toLocaleDateString() }}</span>
       </div>
       <div class="actions">
@@ -41,7 +43,7 @@ function onToggle() {
           :aria-label="item.is_liked ? `取消点赞，当前 ${item.likes_count} 赞` : `点赞，当前 ${item.likes_count} 赞`"
           @click="onToggle"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" :fill="item.is_liked ? '#fe2c55' : 'none'" :stroke="item.is_liked ? '#fe2c55' : '#aaa'" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+          <AppIcon name="heart" :size="16" :filled="item.is_liked" />
           {{ item.is_liked ? '已赞' : '点赞' }}
         </button>
         <RouterLink class="action-link" :to="`/video/${item.id}`">详情</RouterLink>
@@ -61,6 +63,30 @@ function onToggle() {
   overflow: hidden;
   transition: border-color 150ms ease;
 }
+
+.video-card {
+  grid-template-columns: 148px minmax(0, 1fr);
+  gap: 14px;
+  border-color: transparent;
+  border-radius: 8px;
+  background: #1b1b1e;
+}
+.video-card:hover { border-color: var(--border-hover); background: #202024; }
+.cover { border-radius: 8px; }
+.play-icon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(0,0,0,.62);
+  color: #fff;
+}
+.play-icon :deep(svg) { margin-left: 2px; }
+.info { padding: 12px 12px 12px 0; }
+.actions { gap: 6px; }
+.like-btn,
+.action-link { border-radius: 6px; }
 
 .video-card:hover {
   border-color: var(--border-hover);
@@ -166,6 +192,20 @@ function onToggle() {
   background: rgba(255,255,255,0.1);
   color: var(--text);
 }
+
+/* Compact ranked-list card. */
+.video-card { grid-template-columns: 148px minmax(0, 1fr); gap: 14px; }
+.cover { border-radius: 8px; }
+.cover .play-icon {
+  inset: auto;
+  top: 50%;
+  left: 50%;
+  width: 38px;
+  height: 38px;
+  transform: translate(-50%, -50%);
+}
+.info { padding: 12px 12px 12px 0; }
+.actions { gap: 6px; }
 
 @media (max-width: 600px) {
   .video-card {

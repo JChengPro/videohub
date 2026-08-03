@@ -22,17 +22,19 @@ type Service struct {
 	repo         *Repository
 	cache        *rediscache.Client
 	likeRepo     *video.LikeRepository //新增，用于查 is_liked
+	videoRepo    *video.Repository
 	fileStorage  storage.Storage
 	localcache   *localcache.Cache
 	cacheTTL     time.Duration
 	requestGroup singleflight.Group //requestGroup 用来管理“哪些请求是同一个请求”。
 }
 
-func NewService(repo *Repository, cacheClient *rediscache.Client, likeRepo *video.LikeRepository, fileStorage storage.Storage) *Service {
+func NewService(repo *Repository, cacheClient *rediscache.Client, likeRepo *video.LikeRepository, videoRepo *video.Repository, fileStorage storage.Storage) *Service {
 	return &Service{
 		repo:        repo,
 		cache:       cacheClient,
 		likeRepo:    likeRepo,
+		videoRepo:   videoRepo,
 		fileStorage: fileStorage,
 		localcache:  localcache.New(3*time.Second, 5*time.Second),
 		cacheTTL:    24 * time.Hour,
@@ -425,21 +427,27 @@ func (s *Service) toFeedVideoItems(ctx context.Context, videos []*video.Video, a
 	}
 
 	likedSet, _ := s.likeRepo.LikedVideoIDs(ctx, accountID, ids)
+	commentCounts, err := s.videoRepo.CommentCounts(ctx, ids)
+	if err != nil {
+		log.Printf("feed comment count query failed: %v", err)
+		commentCounts = map[uint]int64{}
+	}
 
 	items := make([]FeedVideoItem, len(videos))
 	for i, v := range videos {
 		safeCopy := *v
 		_ = video.RefreshAccessURLs(ctx, s.fileStorage, &safeCopy)
 		items[i] = FeedVideoItem{
-			ID:          safeCopy.ID,
-			Author:      FeedAuthor{ID: safeCopy.AuthorID, Username: safeCopy.Username},
-			Title:       safeCopy.Title,
-			Description: safeCopy.Description,
-			PlayURL:     safeCopy.PlayURL,
-			CoverURL:    safeCopy.CoverURL,
-			CreateTime:  safeCopy.CreateTime.UnixMilli(),
-			LikesCount:  safeCopy.LikesCount,
-			IsLiked:     likedSet[safeCopy.ID],
+			ID:            safeCopy.ID,
+			Author:        FeedAuthor{ID: safeCopy.AuthorID, Username: safeCopy.Username},
+			Title:         safeCopy.Title,
+			Description:   safeCopy.Description,
+			PlayURL:       safeCopy.PlayURL,
+			CoverURL:      safeCopy.CoverURL,
+			CreateTime:    safeCopy.CreateTime.UnixMilli(),
+			LikesCount:    safeCopy.LikesCount,
+			CommentsCount: commentCounts[safeCopy.ID],
+			IsLiked:       likedSet[safeCopy.ID],
 		}
 	}
 	return items

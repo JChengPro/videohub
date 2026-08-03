@@ -4,7 +4,22 @@ export type TokenResponse = { token: string }
 
 export type Account = {
   id: number
+  account_id?: number
+  account_name?: string
   username: string
+  avatar_url?: string
+}
+
+export type RegisterResponse = MessageResponse & { account_name: string; username: string }
+
+export type AccountNameAvailability = { account_name: string; available: boolean }
+
+export type AvatarResponse = { avatar_url: string }
+
+export type SearchUsersResponse = {
+  users: Account[]
+  has_more: boolean
+  next_offset: number
 }
 
 export type Video = {
@@ -17,6 +32,7 @@ export type Video = {
   cover_url: string
   create_time: string
   likes_count: number
+  comments_count: number
 }
 
 export type Comment = {
@@ -42,6 +58,7 @@ export type FeedVideoItem = {
   cover_url: string
   create_time: number
   likes_count: number
+  comments_count: number
   is_liked: boolean
 }
 

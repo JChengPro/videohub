@@ -35,6 +35,7 @@ const feedVideo = computed<FeedVideo | null>(() => video.value ? {
   cover_url: video.value.cover_url,
   create_time: Date.parse(video.value.create_time),
   likes_count: Math.max(0, video.value.likes_count),
+  comments_count: Math.max(0, video.value.comments_count),
   is_liked: liked.value,
 } : null)
 
@@ -120,6 +121,10 @@ function closeComments() {
   resumeAfterComments = false
 }
 
+function updateCommentCount(count: number) {
+  if (video.value) video.value.comments_count = Math.max(0, count)
+}
+
 function onVisibilityChange() {
   if (document.hidden) {
     resumeAfterVisibility = !!videoElement.value && !videoElement.value.paused && !commentsOpen.value
@@ -185,7 +190,7 @@ onUnmounted(() => {
       </div>
 
       <section class="info">
-        <button class="author" type="button" @click="router.push(`/user/${video.author_id}`)">@{{ video.username }}</button>
+        <button class="author" type="button" @click="router.push(`/user/${video.author_id}`)">{{ video.username }}</button>
         <h1>{{ video.title }}</h1>
         <p v-if="video.description">{{ video.description }}</p>
         <div class="info-actions">
@@ -193,13 +198,13 @@ onUnmounted(() => {
             <AppIcon name="heart" :filled="liked" />
             {{ Math.max(0, video.likes_count) }}
           </button>
-          <button type="button" aria-label="查看评论" @click="openComments"><AppIcon name="comment" />评论</button>
+          <button type="button" :aria-label="`查看评论，当前 ${video.comments_count} 条`" @click="openComments"><AppIcon name="comment" />{{ video.comments_count }}</button>
           <button type="button" aria-label="分享视频" @click="share"><AppIcon name="share" />分享</button>
         </div>
       </section>
     </template>
 
-    <CommentsSheet v-if="commentsOpen && feedVideo" :video="feedVideo" @close="closeComments" />
+    <CommentsSheet v-if="commentsOpen && feedVideo" :video="feedVideo" @close="closeComments" @count-change="updateCommentCount" />
   </main>
 </template>
 
@@ -358,6 +363,107 @@ onUnmounted(() => {
   border-radius: 50%;
   animation: spin .8s linear infinite;
 }
+
+.detail-bar { background: rgba(0,0,0,.94); }
+.player video { height: min(70dvh, 720px); }
+.info { padding: 15px 14px; }
+.info h1 { font-size: 18px; }
+.info-actions { gap: 6px; }
+.info-actions button {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  border-radius: 7px;
+  background: var(--mobile-surface-raised);
+}
+.detail-state button,
+.sound-tip { border-radius: var(--mobile-radius); }
+
+/* Match the For You feed: full-screen media with overlaid identity and actions. */
+.detail {
+  position: relative;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+  background: #000;
+}
+.detail-bar {
+  position: absolute;
+  z-index: 20;
+  right: 0;
+  left: 0;
+  border: 0;
+  background: linear-gradient(rgba(0,0,0,.5),transparent);
+  backdrop-filter: none;
+}
+.detail-bar strong { color: rgba(255,255,255,.9); }
+.back,
+.share-top { color: #fff; filter: drop-shadow(0 2px 5px #000); }
+.player {
+  position: absolute;
+  inset: 0;
+}
+.player::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom,rgba(0,0,0,.28),transparent 28%,transparent 55%,rgba(0,0,0,.82));
+  pointer-events: none;
+  content: '';
+}
+.player video {
+  width: 100%;
+  height: 100dvh;
+  object-fit: contain;
+}
+.sound-tip { z-index: 2; right: 12px; bottom: 14px; }
+.info {
+  position: absolute;
+  z-index: 3;
+  right: 76px;
+  bottom: calc(66px + env(safe-area-inset-bottom));
+  left: 14px;
+  padding: 0;
+  color: #fff;
+  text-shadow: 0 2px 7px rgba(0,0,0,.72);
+}
+.author { color: #fff; font-size: 14px; }
+.info h1 { margin-top: 4px; color: #fff; font-size: 16px; }
+.info > p { margin-top: 5px; color: rgba(255,255,255,.82); font-size: 12px; line-height: 1.5; }
+.info-actions {
+  position: absolute;
+  z-index: 4;
+  right: 5px;
+  bottom: calc(64px + env(safe-area-inset-bottom));
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.info-actions button {
+  width: 58px;
+  min-height: 58px;
+  padding: 5px 2px;
+  flex: none;
+  flex-direction: column;
+  gap: 3px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 750;
+  filter: drop-shadow(0 2px 6px #000);
+}
+.info-actions button :deep(svg) {
+  width: 42px;
+  height: 42px;
+  padding: 9px;
+  border-radius: 50%;
+  background: rgba(30,30,33,.8);
+}
+.info-actions button.liked { color: var(--mobile-accent); }
+.detail-state { position: relative; z-index: 3; background: var(--mobile-bg); }
 
 @keyframes spin {
   to { transform: rotate(360deg); }

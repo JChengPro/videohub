@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { useRoute, useRouter } from 'vue-router'
 
 import AppShell from '../components/AppShell.vue'
+import AppIcon from '../components/AppIcon.vue'
 import UserAvatar from '../components/UserAvatar.vue'
 import { ApiError } from '../api/client'
 import * as commentApi from '../api/comment'
@@ -12,6 +13,7 @@ import type { Comment, FeedVideoItem } from '../api/types'
 import { useAuthStore } from '../stores/auth'
 import { useSocialStore } from '../stores/social'
 import { useToastStore } from '../stores/toast'
+import { useDialogStore } from '../stores/dialog'
 
 type TabKey = 'recommend' | 'hot' | 'following'
 
@@ -20,6 +22,7 @@ const router = useRouter()
 const auth = useAuthStore()
 const social = useSocialStore()
 const toast = useToastStore()
+const dialog = useDialogStore()
 
 const tab = ref<TabKey>('recommend')
 const scroller = ref<HTMLDivElement | null>(null)
@@ -347,7 +350,7 @@ async function share(item: FeedVideoItem) {
     toast.success('链接已复制')
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') return
-    window.prompt('复制链接', url)
+    toast.error('暂时无法自动复制，请从浏览器地址栏复制视频链接')
   }
 }
 
@@ -400,7 +403,10 @@ async function loadComments() {
   drawer.error = ''
   try {
     const comments = await commentApi.listAll(videoId)
-    if (request === commentRequest && drawer.open && drawer.video?.id === videoId) drawer.comments = comments
+    if (request === commentRequest && drawer.open && drawer.video?.id === videoId) {
+      drawer.comments = comments
+      drawer.video.comments_count = comments.length
+    }
   } catch (e) {
     if (request === commentRequest && drawer.open) drawer.error = e instanceof ApiError ? e.message : String(e)
   } finally {
@@ -434,10 +440,26 @@ function canDeleteComment(c: Comment) {
   return !!myId && myId === c.author_id
 }
 
+function formatCommentTime(value: string) {
+  const time = new Date(value).getTime()
+  if (!Number.isFinite(time)) return ''
+  const seconds = Math.max(0, Math.floor((Date.now() - time) / 1000))
+  if (seconds < 60) return '刚刚'
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} 小时前`
+  if (seconds < 604800) return `${Math.floor(seconds / 86400)} 天前`
+  return new Date(time).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
+}
+
 async function deleteComment(commentId: number) {
   if (!drawer.video) return
   if (!auth.isLoggedIn) return needLogin()
-  if (!window.confirm('确认删除这条评论？')) return
+  if (!await dialog.ask({
+    title: '删除这条评论？',
+    message: '评论删除后无法恢复。',
+    confirmLabel: '删除评论',
+    tone: 'danger',
+  })) return
   drawer.loading = true
   drawer.error = ''
   try {
@@ -640,13 +662,13 @@ onBeforeUnmount(() => {
               <b>重试</b>
             </button>
             <button v-if="idx === activeIndex && paused && !mediaLoading && !playbackError" class="pause-indicator" type="button" aria-label="继续播放" @click.stop="togglePlayPause">
-              <svg viewBox="0 0 24 24" fill="none"><path d="m9 6 10 6-10 6V6Z"/></svg>
+              <AppIcon name="play" :size="29" />
             </button>
 
             <div class="meta">
               <RouterLink class="author-link" :to="`/u/${item.author.id}`" @click.stop>
                 <UserAvatar :username="item.author.username" :id="item.author.id" :size="34" />
-                <span class="author-name">@{{ item.author.username }}</span>
+                <span class="author-name">{{ item.author.username }}</span>
               </RouterLink>
               <div class="title">{{ item.title }}</div>
               <div v-if="item.description" class="desc">{{ item.description }}</div>
@@ -655,20 +677,16 @@ onBeforeUnmount(() => {
             <div class="actions">
               <button class="act" type="button" :aria-label="item.is_liked ? `取消点赞，当前 ${item.likes_count} 赞` : `点赞，当前 ${item.likes_count} 赞`" :disabled="!!likeBusy[String(item.id)]" @click.stop="toggleLike(item)">
                 <span class="icon" :class="{ liked: item.is_liked }" aria-hidden="true">
-                  <svg viewBox="0 0 24 24">
-                    <path d="M12 21s-7.2-4.7-9.4-9.2C.9 8.2 2.8 4.5 6.6 4.5c2 0 3.5 1 4.4 2.3.9-1.3 2.4-2.3 4.4-2.3 3.8 0 5.7 3.7 4 7.3C19.2 16.3 12 21 12 21Z" />
-                  </svg>
+                  <AppIcon name="heart" :size="20" :filled="item.is_liked" />
                 </span>
                 <span class="count">{{ item.likes_count }}</span>
               </button>
 
-              <button class="act" type="button" aria-label="查看评论" @click.stop="openComments(item)">
+              <button class="act" type="button" :aria-label="`查看评论，当前 ${item.comments_count} 条`" @click.stop="openComments(item)">
                 <span class="icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24">
-                    <path d="M5 5.5A3.5 3.5 0 0 1 8.5 2h7A3.5 3.5 0 0 1 19 5.5v5A3.5 3.5 0 0 1 15.5 14H11l-5.2 4.1A.5.5 0 0 1 5 17.7V5.5Z" />
-                  </svg>
+                  <AppIcon name="comment" :size="20" />
                 </span>
-                <span class="count">评论</span>
+                <span class="count">{{ item.comments_count }}</span>
               </button>
 
               <button
@@ -680,19 +698,14 @@ onBeforeUnmount(() => {
                 @click.stop="toggleFollow(item.author.id)"
               >
                 <span class="icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24">
-                    <path d="M11 5a1 1 0 1 1 2 0v6h6a1 1 0 1 1 0 2h-6v6a1 1 0 1 1-2 0v-6H5a1 1 0 1 1 0-2h6V5Z" />
-                  </svg>
+                  <AppIcon name="following" :size="20" />
                 </span>
                 <span class="count">{{ social.isFollowing(item.author.id) ? '已关注' : '关注' }}</span>
               </button>
 
               <button class="act" type="button" aria-label="分享视频" @click.stop="share(item)">
                 <span class="icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24">
-                    <path d="M14 4h5a1 1 0 0 1 1 1v5a1 1 0 1 1-2 0V7.4l-8.3 8.3a1 1 0 0 1-1.4-1.4L16.6 6H14a1 1 0 1 1 0-2Z" />
-                    <path d="M5 6a2 2 0 0 1 2-2h3a1 1 0 1 1 0 2H7v11h11v-3a1 1 0 1 1 2 0v3a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6Z" />
-                  </svg>
+                  <AppIcon name="share" :size="20" />
                 </span>
                 <span class="count">分享</span>
               </button>
@@ -724,12 +737,14 @@ onBeforeUnmount(() => {
             <div v-else-if="drawer.error" class="drawer-hint bad">{{ drawer.error }}</div>
             <div v-else-if="drawer.comments.length === 0" class="drawer-hint">暂无评论</div>
 
-            <div class="comment" v-for="c in drawer.comments" :key="c.id">
-              <UserAvatar :username="c.username" :id="c.author_id" :size="36" />
+            <article class="comment" v-for="c in drawer.comments" :key="c.id">
+              <RouterLink class="comment-avatar" :to="`/u/${c.author_id}`" :aria-label="`查看 ${c.username} 的主页`" @click="closeDrawer">
+                <UserAvatar :username="c.username" :id="c.author_id" :size="40" />
+              </RouterLink>
               <div class="comment-main">
                 <div class="comment-top">
-                  <div class="comment-user">@{{ c.username }}</div>
-                  <div class="comment-meta">{{ new Date(c.created_at).toLocaleString() }}</div>
+                  <RouterLink class="comment-user" :to="`/u/${c.author_id}`" @click="closeDrawer">{{ c.username }}</RouterLink>
+                  <time class="comment-meta" :datetime="c.created_at">{{ formatCommentTime(c.created_at) }}</time>
                 </div>
                 <div class="comment-content">{{ c.content }}</div>
                 <div class="comment-actions">
@@ -738,7 +753,7 @@ onBeforeUnmount(() => {
                   </button>
                 </div>
               </div>
-            </div>
+            </article>
           </div>
 
           <div class="drawer-foot">
@@ -859,7 +874,7 @@ onBeforeUnmount(() => {
 .act:hover { background: rgba(255,255,255,0.1); }
 .act:disabled { opacity: 0.5; cursor: not-allowed; }
 .icon { width: 20px; height: 20px; display: grid; place-items: center; }
-.icon svg { width: 20px; height: 20px; fill: currentColor; }
+.icon svg { width: 20px; height: 20px; }
 .icon.liked { color: var(--accent); }
 .count { font-size: 11px; color: rgba(255,255,255,0.75); }
 .hint { position: absolute; z-index: 2; left: 14px; top: 14px; display: flex; gap: 6px; flex-wrap: wrap; }
@@ -871,14 +886,14 @@ onBeforeUnmount(() => {
 }
 .hint-pill span { color: var(--accent); }
 
-.drawer-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.48); backdrop-filter: blur(5px); z-index: 120; display: grid; justify-items: end; }
+.drawer-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.62); backdrop-filter: blur(9px); z-index: 120; display: grid; justify-items: end; }
 .drawer {
-  width: min(440px, calc(100vw - 16px)); height: 100dvh;
-  background: var(--surface-panel); border-left: 1px solid rgba(255,255,255,.1);
+  width: min(480px, calc(100vw - 16px)); height: 100dvh;
+  background: linear-gradient(165deg, #1c1c20, #121215); border-left: 1px solid rgba(255,255,255,.11);
   display: grid; grid-template-rows: auto 1fr auto;
-  box-shadow: -24px 0 60px rgba(0,0,0,.34);
+  box-shadow: -32px 0 80px rgba(0,0,0,.46);
 }
-.drawer-head { min-height: 98px; display: flex; align-items: flex-start; justify-content: space-between; padding: 21px 20px 16px; border-bottom: 1px solid var(--border); }
+.drawer-head { min-height: 108px; display: flex; align-items: flex-start; justify-content: space-between; padding: 23px 22px 18px; border-bottom: 1px solid var(--border); background: radial-gradient(circle at 0 0, rgba(255,59,92,.09), transparent 48%); }
 .drawer-kicker { color: #fe2c55; font-size: 8px; font-weight: 900; letter-spacing: .18em; }
 .drawer-title { margin-top: 5px; font-weight: 800; font-size: 18px; }
 .drawer-title b { margin-left: 3px; color: #777; font-size: 11px; font-weight: 500; }
@@ -888,12 +903,12 @@ onBeforeUnmount(() => {
   background: var(--surface-raised); color: var(--text-secondary); cursor: pointer; display: grid; place-items: center;
 }
 .drawer-x:hover { background: rgba(255,255,255,0.1); color: var(--text); }
-.drawer-body { overflow: auto; padding: 8px 20px 18px; display: block; }
-.drawer-foot { min-height: 82px; border-top: 1px solid var(--border); padding: 14px 16px; display: flex; align-items: flex-start; gap: 10px; background: var(--surface-raised); }
+.drawer-body { overflow: auto; padding: 12px 18px 22px; display: block; }
+.drawer-foot { min-height: 88px; border-top: 1px solid var(--border); padding: 15px 16px; display: flex; align-items: flex-start; gap: 10px; background: rgba(29,29,33,.96); }
 .comment-composer { flex: 1; position: relative; }
 .drawer-foot textarea {
-  width: 100%; min-height: 48px; max-height: 110px; resize: none; border-radius: 8px;
-  border: 1px solid transparent; background: var(--surface-hover); color: var(--text);
+  width: 100%; min-height: 52px; max-height: 110px; resize: none; border-radius: 14px;
+  border: 1px solid var(--border); background: var(--surface-hover); color: var(--text);
   padding: 12px 62px 10px 12px; outline: none; font: inherit; font-size: 12px;
 }
 .drawer-foot textarea:focus { border-color: var(--accent); }
@@ -902,14 +917,18 @@ onBeforeUnmount(() => {
 .drawer-hint.bad { color: var(--danger); }
 
 .comment {
-  padding: 16px 0; border-bottom: 1px solid rgba(255,255,255,.06);
-  display: grid; grid-template-columns: auto 1fr; gap: 10px; background: transparent;
+  padding: 9px 0; border: 0;
+  display: grid; grid-template-columns: 40px minmax(0,1fr); align-items: start; gap: 11px; background: transparent;
 }
-.comment-main { min-width: 0; }
+.comment-avatar { border-radius: 999px; transition: transform var(--duration-fast) ease; }
+.comment-avatar:hover { transform: translateY(-1px); }
+.comment-main { min-width: 0; padding: 12px 13px; border: 1px solid rgba(255,255,255,.075); border-radius: 15px; background: rgba(255,255,255,.035); transition: border-color var(--duration-fast) ease, background var(--duration-fast) ease; }
+.comment:hover .comment-main { border-color: rgba(255,255,255,.13); background: rgba(255,255,255,.05); }
 .comment-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.comment-user { font-weight: 600; font-size: 12px; color: #aaa; }
-.comment-meta { flex: 0 0 auto; font-size: 9px; color: #555; }
-.comment-content { margin-top: 7px; font-size: 13px; line-height: 1.65; color: #eee; white-space: pre-wrap; word-break: break-word; }
+.comment-user { min-width: 0; overflow: hidden; color: #e8e8eb; font-weight: 750; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.comment-user:hover { color: var(--accent); }
+.comment-meta { flex: 0 0 auto; font-size: 9px; color: var(--text-muted); }
+.comment-content { margin-top: 7px; font-size: 13px; line-height: 1.65; color: #f1f1f3; white-space: pre-wrap; word-break: break-word; }
 .comment-actions { margin-top: 7px; display: flex; justify-content: flex-start; }
 .comment-action {
   border: 0; background: transparent; color: var(--text-secondary);
@@ -936,4 +955,68 @@ onBeforeUnmount(() => {
   .meta { left: 14px; bottom: 16px; }
   .actions { right: 10px; bottom: 14px; }
 }
+
+/* TikTok-inspired focus layout: one narrow stage and a quiet action rail. */
+.tabs {
+  height: 52px;
+  padding: 0 24px;
+  border-bottom-color: var(--border);
+  background: rgba(11, 11, 13, .94);
+}
+.tab { padding: 14px 2px 13px; font-size: 14px; font-weight: 750; }
+.tab.on::after { right: 0; bottom: 5px; left: 0; height: 2px; }
+.top-chip { padding: 6px 10px; border: 0; border-radius: 6px; background: var(--surface-raised); font-size: 11px; }
+.empty-link { border-radius: 6px; }
+
+@media (min-width: 901px) {
+  .slide { padding: 14px 20px; }
+  .stage {
+    width: min(1260px, calc(100% - 32px));
+    height: calc(100dvh - 62px - 52px - 28px);
+    overflow: hidden;
+    border: 0;
+    border-radius: 14px;
+    background: #050506;
+    box-shadow: 0 22px 64px rgba(0, 0, 0, .55);
+  }
+  .video,
+  .grad { border-radius: 14px; }
+  .grad { background: linear-gradient(to top, rgba(0,0,0,.82), transparent 48%); }
+  .meta { left: 20px; right: auto; bottom: 20px; max-width: min(760px, calc(100% - 112px)); }
+  .author-link { margin-bottom: 5px; font-size: 14px; }
+  .title { max-width: 100%; margin-bottom: 6px; font-size: clamp(22px, 2.2vw, 34px); line-height: 1.16; letter-spacing: -.025em; }
+  .desc { max-width: 100%; color: rgba(255,255,255,.8); font-size: 12px; }
+  .actions { right: 14px; bottom: 18px; gap: 10px; }
+  .act {
+    width: 58px;
+    min-height: 58px;
+    padding: 4px;
+    gap: 3px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
+  .act:hover { background: transparent; }
+  .act .icon {
+    width: 45px;
+    height: 45px;
+    border-radius: 50%;
+    background: #29292d;
+    transition: background var(--duration-fast) ease, transform var(--duration-fast) ease;
+  }
+  .act:hover .icon { background: #38383d; transform: translateY(-1px); }
+  .act .icon svg { width: 20px; height: 20px; }
+  .count { color: #d7d7db; font-size: 10px; font-weight: 750; }
+  .hint { top: 14px; left: 14px; }
+  .hint-pill { padding: 5px 8px; border: 0; background: rgba(0,0,0,.55); font-size: 10px; }
+}
+
+.drawer { background: #151517; }
+.drawer-head { min-height: 92px; padding: 19px 20px 15px; background: transparent; }
+.drawer-body { padding: 10px 18px 20px; }
+.drawer-foot { min-height: 80px; background: #19191c; }
+.drawer-foot textarea,
+.comment-main { border-radius: 8px; background: #202024; }
 </style>

@@ -9,8 +9,9 @@ import (
 
 // Claims就是 JWT 的 Payload。  Payload 是 token 里携带的数据，也叫 claims
 type Claims struct {
-	AccountID uint   `json:"account_id"`
-	Username  string `json:"username"`
+	AccountID   uint   `json:"account_id"`
+	AccountName string `json:"account_name"`
+	Username    string `json:"username"`
 	jwt.RegisteredClaims
 }
 
@@ -22,12 +23,13 @@ func jwtSecret() []byte {
 	return []byte(secret)
 }
 
-func GenerateToken(accountID uint, username string) (string, error) {
+func GenerateToken(accountID uint, accountName string, username string) (string, error) {
 	now := time.Now()
 
 	claims := Claims{
-		AccountID: accountID,
-		Username:  username,
+		AccountID:   accountID,
+		AccountName: accountName,
+		Username:    username,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(now),

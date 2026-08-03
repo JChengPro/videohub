@@ -1,18 +1,31 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 
 const props = defineProps<{
   username: string
   id?: number
   size?: number
+  avatarUrl?: string
+  version?: number
 }>()
 
-function hashToHue(input: string) {
+const avatarPalette = [
+  ['#21d4fd', '#4f46e5'],
+  ['#ff5c7c', '#ff8a3d'],
+  ['#a855f7', '#ec4899'],
+  ['#14b8a6', '#22c55e'],
+  ['#f59e0b', '#ef4444'],
+  ['#6366f1', '#06b6d4'],
+  ['#f43f5e', '#8b5cf6'],
+  ['#84cc16', '#0ea5e9'],
+] as const
+
+function hashString(input: string) {
   let h = 0
   for (let i = 0; i < input.length; i += 1) {
     h = (h * 31 + input.charCodeAt(i)) >>> 0
   }
-  return h % 360
+  return h
 }
 
 const initial = computed(() => {
@@ -22,33 +35,57 @@ const initial = computed(() => {
 })
 
 const sizePx = computed(() => `${props.size ?? 40}px`)
+const imageFailed = ref(false)
+const localVersion = ref(0)
+const imageSrc = computed(() => {
+  if (props.avatarUrl) return props.avatarUrl
+  if (!props.id) return ''
+  const version = props.version ?? localVersion.value
+  return `/api/account/avatar/${props.id}${version ? `?v=${version}` : ''}`
+})
 
 const bg = computed(() => {
-  const seed = typeof props.id === 'number' ? String(props.id) : props.username
-  const hue = hashToHue(seed || '0')
-  const h1 = hue
-  const h2 = (hue + 40) % 360
-  return `linear-gradient(135deg, hsl(${h1} 90% 55%), hsl(${h2} 90% 55%))`
+  const seed = props.username.trim().toLowerCase() || String(props.id ?? 0)
+  const [start, end] = avatarPalette[hashString(seed) % avatarPalette.length] ?? ['#21d4fd', '#4f46e5']
+  return `linear-gradient(145deg, ${start}, ${end})`
 })
+
+watch(imageSrc, () => { imageFailed.value = false })
+
+function onAvatarUpdated(event: Event) {
+  const accountID = (event as CustomEvent<{ accountId?: number }>).detail?.accountId
+  if (props.id && accountID === props.id) {
+    localVersion.value = Date.now()
+    imageFailed.value = false
+  }
+}
+
+onMounted(() => window.addEventListener('videohub:avatar-updated', onAvatarUpdated))
+onUnmounted(() => window.removeEventListener('videohub:avatar-updated', onAvatarUpdated))
 </script>
 
 <template>
-  <div class="avatar" :style="{ width: sizePx, height: sizePx, backgroundImage: bg }" aria-hidden="true">
-    {{ initial }}
+  <div class="avatar" :style="{ width: sizePx, height: sizePx, backgroundImage: bg }">
+    <img v-if="imageSrc && !imageFailed" :src="imageSrc" :alt="`${username} 的头像`" @error="imageFailed = true" />
+    <span v-else aria-hidden="true">{{ initial }}</span>
   </div>
 </template>
 
 <style scoped>
 .avatar {
+  position: relative;
   display: grid;
   place-items: center;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
-  color: rgba(255, 255, 255, 0.92);
-  font-weight: 900;
-  letter-spacing: 0.2px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.08), 0 6px 16px rgba(0, 0, 0, 0.2);
+  color: #f5f5f7;
+  font-weight: 800;
+  letter-spacing: 0;
   user-select: none;
+  overflow: hidden;
 }
+.avatar img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.avatar span { position: relative; z-index: 1; }
+.avatar::after { content: ''; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); pointer-events: none; }
 </style>
-

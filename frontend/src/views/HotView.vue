@@ -1,19 +1,18 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive } from 'vue'
+import { onMounted, reactive } from 'vue'
 
 import { ApiError } from '../api/client'
 import * as feedApi from '../api/feed'
 import * as likeApi from '../api/like'
 import type { FeedVideoItem } from '../api/types'
 import AppShell from '../components/AppShell.vue'
-import FeedVideoCard from '../components/FeedVideoCard.vue'
+import AppIcon from '../components/AppIcon.vue'
+import UserAvatar from '../components/UserAvatar.vue'
 import { useAuthStore } from '../stores/auth'
 import { useToastStore } from '../stores/toast'
 
 const auth = useAuthStore()
 const toast = useToastStore()
-const canLike = computed(() => auth.isLoggedIn)
-
 const state = reactive({
   loading: false, error: '',
   items: [] as FeedVideoItem[], hasMore: false,
@@ -59,93 +58,78 @@ onMounted(async () => { await loadHot(true) })
           <p>根据点赞、评论等互动热度实时排序</p>
         </div>
         <button class="refresh-button" type="button" :disabled="state.loading" @click="loadHot(true)">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M18.5 9A7 7 0 0 0 6.2 6.2L4 8m2 7a7 7 0 0 0 11.8 2.8L20 16"/></svg>
+          <AppIcon name="refresh" :size="16" />
           {{ state.loading ? '更新中' : '刷新榜单' }}
         </button>
       </header>
 
-      <section v-if="state.items.length >= 3" class="podium">
-        <RouterLink v-for="(item, idx) in state.items.slice(0, 3)" :key="`top-${item.id}`" class="podium-card" :class="`place-${idx + 1}`" :to="`/video/${item.id}`">
-          <img :src="item.cover_url" :alt="item.title" />
-          <div class="podium-shade" />
-          <span class="podium-rank">{{ idx + 1 }}</span>
-          <div class="podium-copy">
-            <strong>{{ item.title }}</strong>
-            <span>@{{ item.author.username }} · {{ item.likes_count }} 赞</span>
+      <div class="explore-heading">
+        <div><h2>热门作品</h2><span>按当前互动热度排序</span></div>
+        <b>{{ state.items.length }}</b>
+      </div>
+
+      <div v-if="state.error" class="state-hint error">{{ state.error }}</div>
+      <div v-else-if="state.loading && state.items.length===0" class="state-hint">正在加载热门作品...</div>
+      <div v-else-if="state.items.length === 0" class="state-hint">暂无热视频</div>
+
+      <section v-if="state.items.length" class="explore-grid">
+        <article v-for="(item, idx) in state.items" :key="item.id" class="explore-card">
+          <RouterLink class="cover" :to="`/video/${item.id}`">
+            <img :src="item.cover_url" :alt="item.title" loading="lazy" />
+            <span v-if="idx < 3" class="rank">TOP {{ idx + 1 }}</span>
+            <span class="cover-stats"><AppIcon name="heart" :size="13" filled />{{ item.likes_count }}</span>
+          </RouterLink>
+          <RouterLink class="video-title" :to="`/video/${item.id}`">{{ item.title }}</RouterLink>
+          <div class="card-foot">
+            <RouterLink class="creator" :to="`/u/${item.author.id}`">
+              <UserAvatar :username="item.author.username" :id="item.author.id" :size="28" />
+              <span>{{ item.author.username }}</span>
+            </RouterLink>
+            <button
+              type="button"
+              :class="{ liked: item.is_liked }"
+              :disabled="!!likeBusy[String(item.id)]"
+              :aria-label="item.is_liked ? '取消点赞' : '点赞'"
+              @click="toggleLike(item)"
+            >
+              <AppIcon name="heart" :size="17" :filled="item.is_liked" />
+              {{ item.likes_count }}
+            </button>
           </div>
-        </RouterLink>
+        </article>
       </section>
 
-      <section class="ranking-panel">
-        <div class="ranking-head">
-          <div>
-            <h2>完整榜单</h2>
-            <span>当前展示 {{ state.items.length }} 条热视频</span>
-          </div>
-          <span class="ranking-rule">按综合互动热度排序</span>
-        </div>
-
-        <div v-if="state.error" class="state-hint error">{{ state.error }}</div>
-        <div v-else-if="state.loading && state.items.length===0" class="state-hint">正在生成热榜...</div>
-        <div v-else-if="state.items.length === 0" class="state-hint">暂无热视频</div>
-
-        <div v-if="state.items.length" class="ranking-list">
-          <article v-for="(item,idx) in state.items" :key="item.id" class="rank-row">
-            <div class="rank-num" :class="{ top3: idx<3 }"><span>TOP</span>{{ idx+1 }}</div>
-            <div class="rank-content">
-              <FeedVideoCard :item="item" :can-like="canLike" :busy="!!likeBusy[String(item.id)]" @toggle-like="toggleLike" />
-            </div>
-          </article>
-        </div>
-
-        <button v-if="state.items.length" class="more-button" type="button" :disabled="state.loading || !state.hasMore" @click="loadHot(false)">
-          {{ state.hasMore ? (state.loading ? '加载中...' : '查看更多热视频') : '已经到底了' }}
-        </button>
-      </section>
+      <button v-if="state.items.length" class="more-button" type="button" :disabled="state.loading || !state.hasMore" @click="loadHot(false)">
+        {{ state.hasMore ? (state.loading ? '加载中...' : '加载更多') : '已经到底了' }}
+      </button>
     </div>
   </AppShell>
 </template>
 
 <style scoped>
-.hot-page { padding-bottom: 40px; }
-.hot-header { min-height: 150px; padding: 28px 34px; border: 1px solid var(--border); border-radius: 14px; display: flex; align-items: center; justify-content: space-between; gap: 24px; background: radial-gradient(circle at 80% 20%, rgba(254,44,85,.16), transparent 32%), linear-gradient(135deg, var(--surface-raised), var(--surface-panel)); }
-.hot-kicker { color: #fe2c55; font-size: 10px; font-weight: 900; letter-spacing: .18em; }
-.hot-header h1 { margin-top: 10px; font-size: 32px; letter-spacing: -.05em; }
-.hot-header p { margin-top: 7px; color: #858585; font-size: 12px; }
-.refresh-button { height: 40px; padding: 0 16px; border: 1px solid rgba(255,255,255,.12); border-radius: 6px; display: inline-flex; align-items: center; gap: 8px; background: var(--surface-hover); color: #ddd; font-size: 12px; }
-.refresh-button svg { width: 16px; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.podium { height: 310px; margin-top: 16px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-.podium-card { position: relative; overflow: hidden; border: 1px solid var(--border); border-radius: 12px; color: #fff; }
-.podium-card.place-1 { grid-column: 2; grid-row: 1; transform: translateY(-7px); }
-.podium-card.place-2 { grid-column: 1; grid-row: 1; }
-.podium-card.place-3 { grid-column: 3; grid-row: 1; }
-.podium-card img { width: 100%; height: 100%; object-fit: cover; transition: transform .3s ease; }
-.podium-card:hover img { transform: scale(1.03); }
-.podium-shade { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,.9), transparent 65%); }
-.podium-rank { position: absolute; top: 14px; left: 14px; width: 34px; height: 34px; border-radius: 7px; display: grid; place-items: center; background: #fe2c55; color: #fff; font-size: 16px; font-weight: 900; box-shadow: 0 10px 25px rgba(254,44,85,.32); }
-.place-2 .podium-rank, .place-3 .podium-rank { background: rgba(0,0,0,.68); box-shadow: none; }
-.podium-copy { position: absolute; right: 16px; bottom: 15px; left: 16px; display: grid; gap: 5px; }
-.podium-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
-.podium-copy span { color: rgba(255,255,255,.65); font-size: 10px; }
-.ranking-panel { margin-top: 18px; padding: 24px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-panel); }
-.ranking-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
-.ranking-head h2 { font-size: 18px; }
-.ranking-head span { color: #777; font-size: 10px; }
-.ranking-rule { padding: 6px 10px; border-radius: 999px; background: var(--surface-raised); }
-.ranking-list { margin-top: 18px; display: grid; gap: 10px; }
-.rank-row { display: grid; grid-template-columns: 50px 1fr; gap: 12px; align-items: center; }
-.rank-num {
-  height: 50px; width: 50px; border-radius: 8px;
-  display: grid; place-items: center;
-  align-content: center;
-  font-weight: 900; font-size: 17px;
-  background: var(--surface-raised); border: 1px solid var(--border); color: #85858b;
-}
-.rank-num span { display: block; color: #555; font-size: 7px; letter-spacing: .13em; }
-.rank-num.top3 { background: rgba(254,44,85,0.1); color: var(--accent); border-color: rgba(254,44,85,0.28); }
-.rank-content { min-width: 0; }
-.more-button { width: 100%; height: 42px; margin-top: 18px; border-radius: 7px; background: var(--surface-raised); color: #aaa; font-size: 12px; }
-.state-hint { padding: 70px 0; color: #777; text-align: center; font-size: 12px; }
-.state-hint.error { color: #fe2c55; }
-@media (max-width: 760px) { .hot-header { align-items: flex-start; flex-direction: column; padding: 24px; } .podium { height: auto; grid-template-columns: 1fr; } .podium-card, .podium-card.place-1, .podium-card.place-2, .podium-card.place-3 { grid-column: 1; grid-row: auto; height: 220px; transform: none; } .ranking-panel { padding: 16px; } .rank-row { grid-template-columns: 36px 1fr; } .rank-num { width: 36px; height: 42px; font-size: 13px; } }
+.hot-page { max-width: 1180px; margin: 0 auto; padding-bottom: 42px; }
+.hot-header { min-height: 118px; padding: 16px 2px 22px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.hot-kicker { color: var(--accent); font-size: 9px; font-weight: 900; letter-spacing: .18em; }
+.hot-header h1 { margin-top: 6px; font-size: 36px; font-weight: 850; letter-spacing: -.05em; }
+.hot-header p { margin-top: 5px; color: var(--text-muted); font-size: 12px; }
+.refresh-button { height: 38px; padding: 0 14px; border: 1px solid var(--border); border-radius: 5px; display: inline-flex; align-items: center; gap: 7px; background: transparent; color: var(--text-secondary); font-size: 11px; font-weight: 700; }
+.refresh-button:hover { background: var(--surface-raised); color: #fff; }
+.explore-heading { padding: 22px 0 14px; display: flex; align-items: flex-end; justify-content: space-between; }
+.explore-heading h2 { font-size: 19px; }.explore-heading span { color: var(--text-muted); font-size: 10px; }.explore-heading b { color: var(--text-muted); font-size: 11px; }
+.explore-grid { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 22px 10px; }
+.explore-card { min-width: 0; }
+.cover { position: relative; aspect-ratio: 3/4; overflow: hidden; display: block; border-radius: 6px; background: #08080a; }
+.cover img { width: 100%; height: 100%; display: block; object-fit: cover; transition: transform .2s ease; }.cover:hover img { transform: scale(1.02); }
+.cover::after { position: absolute; inset: auto 0 0; height: 34%; background: linear-gradient(transparent,rgba(0,0,0,.72)); content: ''; }
+.rank { position: absolute; z-index: 2; top: 8px; left: 8px; padding: 4px 7px; border-radius: 4px; background: var(--accent); color: #fff; font-size: 8px; font-weight: 900; }
+.cover-stats { position: absolute; z-index: 2; bottom: 8px; left: 8px; display: flex; align-items: center; gap: 4px; color: #fff; font-size: 10px; font-weight: 750; }
+.video-title { margin-top: 8px; overflow: hidden; display: -webkit-box; color: #eee; font-size: 13px; font-weight: 700; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.video-title:hover { color: #fff; }
+.card-foot { margin-top: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.creator { min-width: 0; display: flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 10px; }.creator span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-foot > button { padding: 4px; display: inline-flex; align-items: center; gap: 4px; background: transparent; color: var(--text-muted); font-size: 9px; }.card-foot > button:hover,.card-foot > button.liked { color: var(--accent); }
+.more-button { width: 100%; height: 42px; margin-top: 24px; border-radius: 5px; background: var(--surface-raised); color: var(--text-secondary); font-size: 11px; }
+.state-hint { padding: 100px 0; color: var(--text-muted); text-align: center; font-size: 12px; }.state-hint.error { color: var(--accent); }
+@media (max-width: 1100px) { .explore-grid { grid-template-columns: repeat(4,minmax(0,1fr)); } }
+@media (max-width: 760px) { .hot-header { align-items: flex-start; flex-direction: column; }.explore-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 </style>

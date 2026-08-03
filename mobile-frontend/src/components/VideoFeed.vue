@@ -340,6 +340,10 @@ function closeComments() {
   resumeAfterComments = false
 }
 
+function updateCommentCount(count: number) {
+  if (commentsVideo.value) commentsVideo.value.comments_count = Math.max(0, count)
+}
+
 function toggleDescription(id: number) {
   const next = new Set(expandedDescriptions.value)
   if (next.has(id)) next.delete(id)
@@ -451,7 +455,7 @@ onUnmounted(() => {
       </button>
 
       <section class="copy">
-        <button class="author-name" type="button" @click.stop="router.push(`/user/${item.author.id}`)">@{{ item.author.username }}</button>
+        <button class="author-name" type="button" @click.stop="router.push(`/user/${item.author.id}`)">{{ item.author.username }}</button>
         <button class="video-title" type="button" @click.stop="router.push(`/video/${item.id}`)">{{ item.title }}</button>
         <div v-if="item.description" class="description-row">
           <p :class="{ expanded: expandedDescriptions.has(item.id) }">{{ item.description }}</p>
@@ -468,7 +472,7 @@ onUnmounted(() => {
       <aside class="actions" aria-label="视频互动">
         <div class="author">
           <button type="button" :aria-label="`查看 ${item.author.username} 的主页`" @click.stop="router.push(`/user/${item.author.id}`)">
-            <Avatar :name="item.author.username" :size="46" />
+            <Avatar :name="item.author.username" :id="item.author.id" :size="46" />
           </button>
           <button
             v-if="item.author.id !== auth.claims?.account_id"
@@ -492,9 +496,9 @@ onUnmounted(() => {
           <span><AppIcon name="heart" :size="30" :filled="item.is_liked" /></span>
           <b>{{ formatCount(item.likes_count) }}</b>
         </button>
-        <button type="button" aria-label="查看评论" @click.stop="openComments(item)">
+        <button type="button" :aria-label="`查看评论，当前 ${item.comments_count} 条`" @click.stop="openComments(item)">
           <span><AppIcon name="comment" :size="29" filled /></span>
-          <b>评论</b>
+          <b>{{ formatCount(item.comments_count) }}</b>
         </button>
         <button type="button" aria-label="分享视频" @click.stop="share(item)">
           <span><AppIcon name="share" :size="28" filled /></span>
@@ -509,7 +513,7 @@ onUnmounted(() => {
       </div>
     </article>
 
-    <CommentsSheet v-if="commentsVideo" :video="commentsVideo" @close="closeComments" />
+    <CommentsSheet v-if="commentsVideo" :video="commentsVideo" @close="closeComments" @count-change="updateCommentCount" />
   </main>
 </template>
 
@@ -707,4 +711,30 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; backgrou
   .description-row,
   .sound-control { display: none; }
 }
+
+.copy {
+  right: 74px;
+  bottom: calc(68px + env(safe-area-inset-bottom));
+  left: 13px;
+}
+.author-name { font-size: 14px; }
+.video-title { font-size: 13px; }
+.actions {
+  right: 5px;
+  bottom: calc(64px + env(safe-area-inset-bottom));
+  gap: 7px;
+}
+.actions > button,
+.actions .author > button:first-child { width: 58px; min-height: 55px; }
+.actions span {
+  width: 43px;
+  height: 43px;
+  border-radius: 50%;
+  background: rgba(30,30,33,.78);
+  backdrop-filter: blur(8px);
+}
+.actions .author > button:first-child span { background: transparent; }
+.actions b { font-size: 9px; text-shadow: 0 2px 5px #000; }
+.state button,
+.feed-progress button { border-radius: var(--mobile-radius); }
 </style>

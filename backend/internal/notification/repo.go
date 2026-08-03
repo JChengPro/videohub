@@ -17,10 +17,12 @@ func NewRepository(db *gorm.DB) *Repository {
 }
 
 // CreateOnce 使用 dedup_key 唯一索引保证重复 MQ 消息不会生成重复通知。
-func (r *Repository) CreateOnce(ctx context.Context, n *Notification) error {
-	return r.db.WithContext(ctx).
+// 返回值表示本次是否真正插入，实时推送只针对新通知发送。
+func (r *Repository) CreateOnce(ctx context.Context, n *Notification) (bool, error) {
+	result := r.db.WithContext(ctx).
 		Clauses(clause.OnConflict{DoNothing: true}).
-		Create(n).Error
+		Create(n)
+	return result.RowsAffected > 0, result.Error
 }
 
 func (r *Repository) List(ctx context.Context, receiverID uint, notificationType string, limit int, beforeID uint) ([]Notification, error) {

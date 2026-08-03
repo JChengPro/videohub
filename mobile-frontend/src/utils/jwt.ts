@@ -1,4 +1,4 @@
-export type JwtPayload = { account_id?: number; username?: string; exp?: number }
+export type JwtPayload = { account_id?: number; account_name?: string; username?: string; exp?: number }
 
 export function decodeJwtPayload(token: string): JwtPayload | null {
   const payload = token.split('.')[1]

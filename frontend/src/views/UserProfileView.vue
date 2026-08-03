@@ -203,21 +203,24 @@ onBeforeUnmount(() => {
 
 <template>
   <AppShell>
-    <div class="card">
+    <div class="profile-summary card">
       <div class="row" style="justify-content: space-between; align-items: flex-start">
         <div class="row" style="gap: 12px; align-items: center">
           <UserAvatar :username="state.user?.username ?? 'User'" :id="state.user?.id ?? userId" :size="64" />
           <div>
-            <div class="title" style="margin: 0">@{{ state.user?.username ?? '-' }}</div>
-            <div class="subtle mono">#{{ state.user?.id ?? userId }}</div>
+            <div class="title" style="margin: 0">{{ state.user?.username ?? '-' }}</div>
+            <div class="subtle mono">@{{ state.user?.account_name ?? '-' }}</div>
           </div>
         </div>
 
         <div class="row">
           <button v-if="isMe" class="ghost" type="button" @click="router.push('/account')">我的账号</button>
-          <button v-else class="primary" type="button" :disabled="!state.user || state.loading || followBusy" @click="toggleFollow">
-            {{ isFollowing ? '已关注' : '关注' }}
-          </button>
+          <template v-else>
+            <button class="ghost" type="button" :disabled="!state.user || !auth.isLoggedIn" @click="router.push(`/messages/chat/${userId}`)">私信</button>
+            <button class="primary" type="button" :disabled="!state.user || state.loading || followBusy" @click="toggleFollow">
+              {{ isFollowing ? '已关注' : '关注' }}
+            </button>
+          </template>
         </div>
       </div>
 
@@ -242,7 +245,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div class="card" style="margin-top: 14px">
+    <div class="profile-works card" style="margin-top: 14px">
       <div class="row" style="justify-content: space-between">
         <p class="title" style="margin: 0">作品</p>
         <div class="subtle">点击封面进入播放页</div>
@@ -275,8 +278,8 @@ onBeforeUnmount(() => {
           <button v-for="u in listItems" :key="u.id" class="user-row" type="button" @click="goUser(u.id)">
             <UserAvatar :username="u.username" :id="u.id" :size="40" />
             <div class="user-meta">
-              <div class="user-name">@{{ u.username }}</div>
-              <div class="user-id mono">#{{ u.id }}</div>
+              <div class="user-name">{{ u.username }}</div>
+              <div class="user-id mono">@{{ u.account_name }}</div>
             </div>
           </button>
         </div>
@@ -517,4 +520,60 @@ onBeforeUnmount(() => {
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
 }
+
+.profile-summary,
+.profile-works {
+  max-width: 980px;
+  margin-right: auto;
+  margin-left: auto;
+  border-color: transparent;
+  border-radius: 8px;
+  background: var(--surface-panel);
+}
+.profile-summary {
+  position: relative;
+  padding: 28px;
+  border-top: 2px solid var(--accent);
+}
+.profile-summary::after {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 180px;
+  height: 100%;
+  background: linear-gradient(135deg, transparent, rgba(37,244,238,.045));
+  pointer-events: none;
+  content: '';
+}
+.profile-summary .ghost { border-radius: 6px; }
+.metric {
+  min-width: 94px;
+  padding: 8px 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.metric:hover { background: transparent; color: var(--accent); }
+.profile-works { padding: 20px; }
+.video-grid { gap: 4px; }
+.video-card { border: 0; border-radius: 6px; background: #1b1b1e; }
+.video-meta { padding: 9px; }
+.drawer { border-radius: 10px; }
+.user-row { border: 0; border-radius: 7px; }
+
+.profile-summary,
+.profile-works {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.profile-summary {
+  padding: 30px 4px 24px;
+  border-top: 0;
+  border-bottom: 1px solid var(--border);
+}
+.profile-summary::after { display: none; }
+.profile-works { padding: 18px 0; }
+.video-grid { grid-template-columns: repeat(5,minmax(0,1fr)); gap: 4px; }
+@media (max-width: 900px) { .video-grid { grid-template-columns: repeat(3,minmax(0,1fr)); } }
 </style>
