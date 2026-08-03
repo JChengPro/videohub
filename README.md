@@ -290,6 +290,17 @@ docker compose down
 docker compose down -v
 ```
 
+### 升级已有环境
+
+从旧版升级到包含唯一账号名、头像和 WebSocket 私信的版本后，需要重新构建并启动容器：
+
+```bash
+git pull
+docker compose up -d --build
+```
+
+API 启动时会自动补齐账号字段，并创建私信会话、消息和拉黑关系表，无需手工执行 SQL。升级前签发的 JWT 不包含 `account_name`，如果页面账号名未正常显示，请退出后重新登录。
+
 ## 可选：启用阿里云 OSS
 
 使用私有 OSS Bucket 时，在仓库根目录创建 `.env`：
@@ -343,10 +354,12 @@ docker compose -f docker-compose.prod.yml up -d --build
 │   ├── internal/account/              # 账号模块
 │   ├── internal/config/               # YAML 加载与环境变量覆盖
 │   ├── internal/feed/                 # 视频流、冷热分离、三级缓存
+│   ├── internal/message/              # 私信会话、消息策略和已读状态
 │   ├── internal/middleware/           # JWTAuth / SoftJWTAuth
 │   ├── internal/mq/                   # RabbitMQ 和事件结构
-│   ├── internal/notification/         # 点赞、评论、关注通知
+│   ├── internal/notification/         # 点赞、评论、关注通知及实时推送
 │   ├── internal/ratelimit/            # Redis 接口限流
+│   ├── internal/realtime/             # WebSocket Hub、ticket 和 Redis Pub/Sub
 │   ├── internal/social/               # 关注模块
 │   ├── internal/storage/              # Local / OSS 存储实现
 │   ├── internal/video/                # 视频、点赞、评论、Outbox
@@ -368,13 +381,15 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 | 模块 | 接口 |
 | --- | --- |
-| 账号 | `/account/register`、`/account/login`、`/account/checkAccountName`、`/account/changePassword`、`/account/rename`、`/account/avatar`、`/account/avatar/:id`、`/account/me`、`/account/logout` |
+| 账号 | `/account/register`、`/account/login`、`/account/checkAccountName`、`/account/findByID`、`/account/findByUsername`、`/account/search`、`/account/changePassword`、`/account/rename`、`/account/avatar`、`/account/avatar/:id`、`/account/me`、`/account/logout` |
 | 视频 | `/video/uploadCover`、`/video/uploadVideo`、`/video/uploadChunk`、`/video/chunkStatus`、`/video/mergeChunks`、`/video/publish`、`/video/getDetail`、`/video/listByAuthorID`、`/video/delete` |
 | 视频流 | `/feed/listLatest`、`/feed/listByFollowing`、`/feed/listLikesCount`、`/feed/listByPopularity` |
 | 点赞 | `/like/like`、`/like/unlike`、`/like/isLiked`、`/like/listMyLikedVideos` |
 | 评论 | `/comment/publish`、`/comment/delete`、`/comment/listAll` |
 | 关注 | `/social/follow`、`/social/unfollow`、`/social/getAllFollowers`、`/social/getAllVloggers` |
 | 通知 | `/notification/list`、`/notification/unreadCount`、`/notification/markRead`、`/notification/markAllRead` |
+| 私信 | `/message/listConversations`、`/message/listMessages`、`/message/send`、`/message/markRead`、`/message/accept`、`/message/reject`、`/message/block`、`/message/unblock`、`/message/unreadCount` |
+| 实时通信 | `/realtime/wsTicket`、`GET /ws` |
 
 ## 本地开发
 
@@ -426,14 +441,12 @@ npm run build
 
 ## 当前验证情况
 
+- 后端 `go test ./...` 全部通过。
+- 后端 `go vet ./...` 静态检查通过。
 - 桌面端 `vue-tsc -b && vite build` 生产构建通过。
 - 手机端 `vue-tsc -b && vite build` 生产构建通过。
-- 桌面端和手机端原有路由、API URL、请求字段和鉴权方式保持不变。
-- 前端改动未修改 `backend/`、Docker Compose、Nginx 或后端部署拓扑。
-- API、Worker、桌面端和手机端 Docker 镜像构建通过。
-- 本地 Docker Compose 桌面端、手机端和依赖服务启动通过。
-- 生产 Compose 配置解析、HTTP Gateway 设备分流和 API 反向代理验证通过。
-- API 健康检查通过。
+- `docker compose config --quiet` 配置解析通过。
+- 本地 Docker 端到端流程已覆盖桌面端/手机端代理、WebSocket 连接、三条消息限额、会话接受、已读、互关、取消互关、拉黑和消息幂等。
 - 本地存储和阿里云私有 OSS 存储链路已验证。
 - OSS 文件上传、ObjectKey 发布、签名 URL 访问和异步删除链路已验证。
 
@@ -441,7 +454,6 @@ npm run build
 
 ## 后续优化方向
 
-- 根据需求为通知中心接入 WebSocket 实时提醒。
 - 增加 Outbox 失败消息告警、指数退避、死信队列和重放接口。
 - 增加 OSS 孤儿对象定时清理、客户端直传和 CDN。
 - 增加视频转码与多码率输出，统一处理 HEVC、MOV 等移动设备视频编码。
