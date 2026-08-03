@@ -8,15 +8,16 @@ type FeedAuthor struct {
 }
 
 type FeedVideoItem struct {
-	ID          uint       `json:"id"`
-	Author      FeedAuthor `json:"author"` // 嵌套对象，不是平铺字段
-	Title       string     `json:"title"`
-	Description string     `json:"description,omitempty"`
-	PlayURL     string     `json:"play_url"`
-	CoverURL    string     `json:"cover_url"`
-	CreateTime  int64      `json:"create_time"` // Unix 毫秒时间戳，不是 time.Time
-	LikesCount  int64      `json:"likes_count"`
-	IsLiked     bool       `json:"is_liked"` // 当前用户是否点赞
+	ID            uint       `json:"id"`
+	Author        FeedAuthor `json:"author"` // 嵌套对象，不是平铺字段
+	Title         string     `json:"title"`
+	Description   string     `json:"description,omitempty"`
+	PlayURL       string     `json:"play_url"`
+	CoverURL      string     `json:"cover_url"`
+	CreateTime    int64      `json:"create_time"` // Unix 毫秒时间戳，不是 time.Time
+	LikesCount    int64      `json:"likes_count"`
+	CommentsCount int64      `json:"comments_count"`
+	IsLiked       bool       `json:"is_liked"` // 当前用户是否点赞
 }
 
 // ---- listLatest ----

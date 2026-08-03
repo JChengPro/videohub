@@ -1,6 +1,6 @@
 # VideoHub
 
-VideoHub 是一个基于 Go 开发的视频内容社区，支持账号登录、视频上传与发布、点赞评论、关注关系、互动通知、视频流浏览和热视频排行，并提供独立构建的桌面端与沉浸式手机端页面。
+VideoHub 是一个基于 Go 开发的视频内容社区，支持账号登录、视频上传与发布、点赞评论、关注关系、互动通知、WebSocket 私信、视频流浏览和热视频排行，并提供独立构建的桌面端与沉浸式手机端页面。
 
 项目采用 **API + Worker 双进程模型**：API 负责鉴权、限流和同步写入核心业务数据；Worker 负责 Outbox 消息投递、RabbitMQ 消费、热度更新、缓存维护和文件删除。视频文件默认保存在本地，也可以通过环境变量切换至阿里云 OSS 私有 Bucket。
 
@@ -15,6 +15,7 @@ VideoHub 是一个基于 Go 开发的视频内容社区，支持账号登录、�
 | 数据库 | MySQL 8 |
 | 缓存与排行 | Redis、Redis ZSET、go-cache |
 | 消息队列 | RabbitMQ |
+| 实时通信 | WebSocket、Redis Pub/Sub |
 | 文件存储 | 本地文件系统、阿里云 OSS 私有 Bucket |
 | 并发控制 | MySQL 事务、行锁、singleflight |
 | 容器化 | Docker、Docker Compose |
@@ -23,7 +24,7 @@ VideoHub 是一个基于 Go 开发的视频内容社区，支持账号登录、�
 
 | 模块 | 已实现功能 |
 | --- | --- |
-| 账号 | 注册、登录、退出、修改密码、修改用户名、查询用户 |
+| 账号 | 唯一账号名注册/登录、中文公开昵称、头像上传与动态默认头像、退出、修改密码、查询用户 |
 | 鉴权 | JWTAuth 强鉴权、SoftJWTAuth 软鉴权、token 主动撤销 |
 | 视频 | 上传封面、上传视频、分片上传、合并分片、发布、详情、作者视频、状态删除 |
 | 视频流 | 最新视频流、关注视频流、点赞排行、热视频榜 |
@@ -31,6 +32,7 @@ VideoHub 是一个基于 Go 开发的视频内容社区，支持账号登录、�
 | 评论 | 发表评论、删除评论、评论列表 |
 | 关注 | 关注、取消关注、粉丝列表、关注列表 |
 | 通知 | 点赞、评论、关注异步通知、未读数、标记已读、消息页面 |
+| 私信 | WebSocket 实时收发、会话请求、三条消息额度、接收者回复即接受、互关直聊、已读回执、拉黑、未读数 |
 | 客户端 | 桌面沉浸式播放、手机竖屏滑动、双端评论互动、响应式布局、自动设备分流 |
 | 工程能力 | Outbox、消费幂等、独立通知队列、三级缓存、冷热分离、限流、Docker Compose |
 
@@ -46,6 +48,7 @@ VideoHub 是一个基于 Go 开发的视频内容社区，支持账号登录、�
 - 评论抽屉打开时暂停当前视频，关闭后只在视频原本处于播放状态时恢复。
 - 发布页面支持视频预览、封面预览、真实上传进度和大文件分片上传，并在上传期间阻止误离开页面。
 - 消息筛选、用户主页、个人中心和视频详情均提供加载、空数据、错误与重试状态。
+- 私信支持实时收发、断线重连、历史消息分页、已读状态、请求接受/拒绝和拉黑。
 
 ### 手机端
 
@@ -55,6 +58,7 @@ VideoHub 是一个基于 Go 开发的视频内容社区，支持账号登录、�
 - 支持单击播放或暂停、双击点赞、长描述展开、静音切换、关注、评论、分享和游标分页。
 - 评论 Bottom Sheet 支持遮罩关闭、`Esc` 关闭、焦点管理、背景滚动锁定、评论发布和删除。
 - 消息未读数由 Pinia Store 统一维护；个人中心支持作品、喜欢、关注、粉丝、改名、改密码和删除作品。
+- 私信页面按移动端单列交互实现，支持实时消息、会话列表、已读回执和消息请求处理。
 - 发布页面支持手机常见视频格式、上传前预览、封面选择、分片上传进度和上传期间路由保护。
 
 ### 播放与格式说明
@@ -80,21 +84,21 @@ VideoHub 是一个基于 Go 开发的视频内容社区，支持账号登录、�
 ```text
 Desktop / Mobile Browser
   |
-HTTP Gateway（生产环境按设备分流）
+HTTP / WebSocket Gateway（生产环境按设备分流）
   |
 Desktop Vue / Mobile Vue + Nginx
   |
   | /api reverse proxy
   v
-Go API
+Go API + WebSocket Hub
   |-- 参数校验 / JWT / Redis 限流
   |-- 同步写 MySQL 业务表
   |-- 同事务写 outbox_msgs
   |-- 上传文件至 Local Storage / OSS
   |
-  +----> Redis：token、缓存、时间线、热榜
+  +----> Redis：token、缓存、时间线、热榜、实时事件 Pub/Sub
   |
-  +----> MySQL：核心业务数据、Outbox、消费记录
+  +----> MySQL：核心业务数据、私信会话与消息、Outbox、消费记录
               |
               | Outbox Poller
               v
@@ -218,11 +222,23 @@ type Storage interface {
 
 ### JWT 鉴权与 Redis 限流
 
+- 登录身份与公开昵称分离：`account_name` 是忽略大小写的唯一登录账号，`username` 是支持中文且可修改的公开昵称。
+- 老数据库启动时会自动补齐 `account_name`；迁移账号暂时保留旧昵称登录兼容，新注册账号只使用 `account_name + password` 登录。
+- 用户可以在网页端和手机端账号设置中上传 JPG、PNG 或 WebP 头像（最大 5MB）；未上传头像时由后端生成稳定的彩色 SVG 默认头像。
 - JWTAuth 用于必须登录的发布、点赞、评论和关注接口。
 - SoftJWTAuth 用于公开视频流：未登录可以访问，登录用户额外返回用户态信息。
 - token 同时保存在 MySQL 和 Redis；退出登录时删除服务端 token，使旧 JWT 立即失效。
 - 登录和注册按 IP 限流；点赞、评论和关注按账号限流。
 - Redis 不可用时限流采用 fail-open，优先保证核心业务可用。
+
+### WebSocket 私信与实时通知
+
+- 浏览器先通过 JWT 保护的接口获取 30 秒一次性 WebSocket ticket，再连接 `/ws`；ticket 在 Redis 中原子读取并删除，不能重复使用。
+- WebSocket Hub 支持同一账号多设备连接、心跳保活、慢连接清理和发送队列隔离。
+- API 和 Worker 通过 Redis Pub/Sub 发布实时事件，因此多 API 实例之间也能把私信和点赞、评论、关注通知推送到正确连接。
+- 私信正文、会话状态、未读数和已读游标以 MySQL 为准；实时事件丢失时客户端可通过 REST 接口补拉，不会丢失正式消息。
+- 非互关用户由一方发起消息请求，接收者回复或主动接受后双方可正常聊天；在此之前发起者最多发送三条。互关用户可直接聊天，任意一方拉黑后双方都不能继续发送。
+- 每条消息带客户端幂等 ID，会话发送使用事务和行锁串行修改三条额度及未读数，避免并发绕过规则。
 
 ## 一键启动
 
@@ -352,7 +368,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 | 模块 | 接口 |
 | --- | --- |
-| 账号 | `/account/register`、`/account/login`、`/account/changePassword`、`/account/rename`、`/account/me`、`/account/logout` |
+| 账号 | `/account/register`、`/account/login`、`/account/checkAccountName`、`/account/changePassword`、`/account/rename`、`/account/avatar`、`/account/avatar/:id`、`/account/me`、`/account/logout` |
 | 视频 | `/video/uploadCover`、`/video/uploadVideo`、`/video/uploadChunk`、`/video/chunkStatus`、`/video/mergeChunks`、`/video/publish`、`/video/getDetail`、`/video/listByAuthorID`、`/video/delete` |
 | 视频流 | `/feed/listLatest`、`/feed/listByFollowing`、`/feed/listLikesCount`、`/feed/listByPopularity` |
 | 点赞 | `/like/like`、`/like/unlike`、`/like/isLiked`、`/like/listMyLikedVideos` |

@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { useRoute, useRouter } from 'vue-router'
 
 import AppShell from '../components/AppShell.vue'
+import AppIcon from '../components/AppIcon.vue'
 import UserAvatar from '../components/UserAvatar.vue'
 import { ApiError } from '../api/client'
 import * as commentApi from '../api/comment'
@@ -12,12 +13,14 @@ import * as videoApi from '../api/video'
 import { useAuthStore } from '../stores/auth'
 import { useSocialStore } from '../stores/social'
 import { useToastStore } from '../stores/toast'
+import { useDialogStore } from '../stores/dialog'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const social = useSocialStore()
 const toast = useToastStore()
+const dialog = useDialogStore()
 
 const id = computed(() => Number(route.params.id))
 const isOwner = computed(() => !!state.video && auth.claims?.account_id === state.video.author_id)
@@ -210,7 +213,7 @@ async function share() {
     toast.success('链接已复制')
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') return
-    window.prompt('复制链接', url)
+    toast.error('暂时无法自动复制，请从浏览器地址栏复制视频链接')
   }
 }
 
@@ -222,7 +225,12 @@ async function deleteVideo() {
     return
   }
   if (state.busy) return
-  if (!window.confirm('确认删除这个视频？相关点赞和评论也会一起删除。')) return
+  if (!await dialog.ask({
+    title: '删除这个视频？',
+    message: '删除后作品将不再公开展示，相关点赞和评论也会一并移除。',
+    confirmLabel: '删除视频',
+    tone: 'danger',
+  })) return
 
   state.busy = true
   try {
@@ -264,7 +272,10 @@ async function loadComments() {
   drawer.error = ''
   try {
     const comments = await commentApi.listAll(videoId)
-    if (request === commentRequest && drawer.open && state.video?.id === videoId) drawer.comments = comments
+    if (request === commentRequest && drawer.open && state.video?.id === videoId) {
+      drawer.comments = comments
+      state.video.comments_count = comments.length
+    }
   } catch (e) {
     if (request === commentRequest && drawer.open) drawer.error = e instanceof ApiError ? e.message : String(e)
   } finally {
@@ -309,10 +320,26 @@ function canDeleteComment(c: Comment) {
   return !!myId && myId === c.author_id
 }
 
+function formatCommentTime(value: string) {
+  const time = new Date(value).getTime()
+  if (!Number.isFinite(time)) return ''
+  const seconds = Math.max(0, Math.floor((Date.now() - time) / 1000))
+  if (seconds < 60) return '刚刚'
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} 小时前`
+  if (seconds < 604800) return `${Math.floor(seconds / 86400)} 天前`
+  return new Date(time).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
+}
+
 async function deleteComment(commentId: number) {
   if (!state.video) return
   if (!auth.isLoggedIn) return needLogin()
-  if (!window.confirm('确认删除这条评论？')) return
+  if (!await dialog.ask({
+    title: '删除这条评论？',
+    message: '评论删除后无法恢复。',
+    confirmLabel: '删除评论',
+    tone: 'danger',
+  })) return
 
   drawer.loading = true
   drawer.error = ''
@@ -453,13 +480,13 @@ onBeforeUnmount(() => {
           <div v-if="mediaLoading && !playbackError" class="media-status" role="status"><span class="media-spinner" />正在缓冲</div>
           <button v-if="playbackError" class="media-error" type="button" @click.stop="retryPlayback"><span>{{ playbackError }}</span><b>重试</b></button>
           <button v-if="paused && !mediaLoading && !playbackError" class="pause-indicator" type="button" aria-label="继续播放" @click.stop="togglePlayPause">
-            <svg viewBox="0 0 24 24" fill="none"><path d="m9 6 10 6-10 6V6Z" /></svg>
+            <AppIcon name="play" :size="29" />
           </button>
 
           <div class="meta">
             <RouterLink class="author-link" :to="`/u/${state.video.author_id}`" @click.stop>
               <UserAvatar :username="state.video.username" :id="state.video.author_id" :size="34" />
-              <span class="author-name">@{{ state.video.username }}</span>
+              <span class="author-name">{{ state.video.username }}</span>
             </RouterLink>
             <div class="title">{{ state.video.title }}</div>
             <div v-if="state.video.description" class="desc">{{ state.video.description }}</div>
@@ -472,20 +499,16 @@ onBeforeUnmount(() => {
           <div class="actions">
             <button class="act" type="button" :aria-label="state.isLiked ? `取消点赞，当前 ${state.video.likes_count} 赞` : `点赞，当前 ${state.video.likes_count} 赞`" :disabled="state.busy" @click.stop="toggleLike">
               <span class="icon" :class="{ liked: !!state.isLiked }" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M12 21s-7.2-4.7-9.4-9.2C.9 8.2 2.8 4.5 6.6 4.5c2 0 3.5 1 4.4 2.3.9-1.3 2.4-2.3 4.4-2.3 3.8 0 5.7 3.7 4 7.3C19.2 16.3 12 21 12 21Z" />
-                </svg>
+                <AppIcon name="heart" :size="20" :filled="!!state.isLiked" />
               </span>
               <span class="count">{{ state.video.likes_count }}</span>
             </button>
 
-            <button class="act" type="button" aria-label="查看评论" @click.stop="openComments">
+            <button class="act" type="button" :aria-label="`查看评论，当前 ${state.video.comments_count} 条`" @click.stop="openComments">
               <span class="icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M5 5.5A3.5 3.5 0 0 1 8.5 2h7A3.5 3.5 0 0 1 19 5.5v5A3.5 3.5 0 0 1 15.5 14H11l-5.2 4.1A.5.5 0 0 1 5 17.7V5.5Z" />
-                </svg>
+                <AppIcon name="comment" :size="20" />
               </span>
-              <span class="count">评论</span>
+              <span class="count">{{ state.video.comments_count }}</span>
             </button>
 
             <button
@@ -497,28 +520,21 @@ onBeforeUnmount(() => {
               @click.stop="toggleFollow"
             >
               <span class="icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M11 5a1 1 0 1 1 2 0v6h6a1 1 0 1 1 0 2h-6v6a1 1 0 1 1-2 0v-6H5a1 1 0 1 1 0-2h6V5Z" />
-                </svg>
+                <AppIcon name="following" :size="20" />
               </span>
               <span class="count">{{ social.isFollowing(state.video.author_id) ? '已关注' : '关注' }}</span>
             </button>
 
             <button class="act" type="button" aria-label="分享视频" @click.stop="share">
               <span class="icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M14 4h5a1 1 0 0 1 1 1v5a1 1 0 1 1-2 0V7.4l-8.3 8.3a1 1 0 0 1-1.4-1.4L16.6 6H14a1 1 0 1 1 0-2Z" />
-                  <path d="M5 6a2 2 0 0 1 2-2h3a1 1 0 1 1 0 2H7v11h11v-3a1 1 0 1 1 2 0v3a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6Z" />
-                </svg>
+                <AppIcon name="share" :size="20" />
               </span>
               <span class="count">分享</span>
             </button>
 
             <button v-if="isOwner" class="act act-danger" type="button" aria-label="删除视频" :disabled="state.busy" @click.stop="deleteVideo">
               <span class="icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M9 3h6a1 1 0 0 1 1 1v1h4a1 1 0 1 1 0 2h-1v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7H4a1 1 0 1 1 0-2h4V4a1 1 0 0 1 1-1Zm1 2h4V5h-4v0Zm-1 5a1 1 0 1 0-2 0v7a1 1 0 1 0 2 0v-7Zm4 0a1 1 0 1 0-2 0v7a1 1 0 1 0 2 0v-7Zm4 0a1 1 0 1 0-2 0v7a1 1 0 1 0 2 0v-7Z" />
-                </svg>
+                <AppIcon name="trash" :size="20" />
               </span>
               <span class="count">删除</span>
             </button>
@@ -536,7 +552,11 @@ onBeforeUnmount(() => {
       <div v-if="drawer.open" class="drawer-backdrop" @click.self="closeDrawer">
         <div class="drawer" role="dialog" aria-modal="true" aria-labelledby="detail-comments-title">
           <div class="drawer-head">
-            <div id="detail-comments-title" class="drawer-title">评论</div>
+            <div>
+              <span class="drawer-kicker">COMMENTS</span>
+              <div id="detail-comments-title" class="drawer-title">评论 <b>{{ drawer.comments.length }}</b></div>
+              <p>{{ state.video?.title ?? '视频评论' }}</p>
+            </div>
             <button class="drawer-x" type="button" aria-label="关闭评论" @click="closeDrawer">×</button>
           </div>
 
@@ -545,29 +565,30 @@ onBeforeUnmount(() => {
             <div v-else-if="drawer.error" class="drawer-hint bad">{{ drawer.error }}</div>
             <div v-else-if="drawer.comments.length === 0" class="drawer-hint">暂无评论</div>
 
-            <div class="comment" v-for="c in drawer.comments" :key="c.id">
-              <div class="comment-top">
-                <div class="comment-user">{{ c.username }}</div>
-                <div class="comment-meta">
-                  #{{ c.id }} · {{ new Date(c.created_at).toLocaleString() }}
+            <article class="comment" v-for="c in drawer.comments" :key="c.id">
+              <RouterLink class="comment-avatar" :to="`/u/${c.author_id}`" :aria-label="`查看 ${c.username} 的主页`" @click="closeDrawer">
+                <UserAvatar :username="c.username" :id="c.author_id" :size="40" />
+              </RouterLink>
+              <div class="comment-main">
+                <div class="comment-top">
+                  <RouterLink class="comment-user" :to="`/u/${c.author_id}`" @click="closeDrawer">{{ c.username }}</RouterLink>
+                  <time class="comment-meta" :datetime="c.created_at">{{ formatCommentTime(c.created_at) }}</time>
+                </div>
+                <div class="comment-content">{{ c.content }}</div>
+                <div class="comment-actions">
+                  <button v-if="canDeleteComment(c)" class="comment-action danger" type="button" :disabled="drawer.loading" @click="deleteComment(c.id)">
+                    删除
+                  </button>
                 </div>
               </div>
-              <div class="comment-content">{{ c.content }}</div>
-              <div class="comment-actions">
-                <button v-if="canDeleteComment(c)" class="comment-action danger" type="button" :disabled="drawer.loading" @click="deleteComment(c.id)">
-                  删除
-                </button>
-              </div>
-            </div>
+            </article>
           </div>
 
           <div class="drawer-foot">
-            <textarea ref="commentInput" v-model="drawer.content" aria-label="评论内容" maxlength="300" placeholder="说点什么…" :disabled="drawer.loading" @keydown.esc.prevent="closeDrawer" />
-            <div class="drawer-actions">
-              <button class="comment-action" type="button" :disabled="drawer.loading" @click="loadComments">刷新</button>
-              <button class="comment-action primary" type="button" :disabled="drawer.loading || !drawer.content.trim()" @click="publishComment">
-                发送
-              </button>
+            <UserAvatar :username="auth.claims?.username ?? 'User'" :id="auth.claims?.account_id ?? 0" :size="36" />
+            <div class="comment-composer">
+              <textarea ref="commentInput" v-model="drawer.content" aria-label="评论内容" maxlength="300" placeholder="留下你的评论" :disabled="drawer.loading" @keydown.esc.prevent="closeDrawer" />
+              <button class="comment-action primary" type="button" :disabled="drawer.loading || !drawer.content.trim()" @click="publishComment">发送</button>
             </div>
           </div>
         </div>
@@ -876,7 +897,6 @@ onBeforeUnmount(() => {
 .icon svg {
   width: 22px;
   height: 22px;
-  fill: currentColor;
   display: block;
 }
 
@@ -957,9 +977,9 @@ onBeforeUnmount(() => {
 }
 
 .drawer {
-  width: min(420px, calc(100vw - 18px));
+  width: min(480px, calc(100vw - 18px));
   height: 100dvh;
-  background: var(--surface-overlay);
+  background: linear-gradient(165deg, #1c1c20, #121215);
   border-left: 1px solid rgba(255, 255, 255, 0.12);
   display: grid;
   grid-template-rows: auto 1fr auto;
@@ -967,16 +987,22 @@ onBeforeUnmount(() => {
 
 .drawer-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  padding: 14px 14px;
+  min-height: 108px;
+  padding: 23px 22px 18px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: radial-gradient(circle at 0 0, rgba(255, 59, 92, .09), transparent 48%);
 }
 
+.drawer-kicker { color: var(--accent); font-size: 8px; font-weight: 900; letter-spacing: .18em; }
 .drawer-title {
+  margin-top: 5px;
   font-weight: 800;
-  font-size: 14px;
+  font-size: 18px;
 }
+.drawer-title b { margin-left: 3px; color: var(--text-muted); font-size: 11px; font-weight: 500; }
+.drawer-head p { max-width: 330px; margin-top: 5px; overflow: hidden; color: var(--text-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 
 .drawer-x {
   width: 34px;
@@ -1012,28 +1038,33 @@ onBeforeUnmount(() => {
 
 .drawer-body {
   overflow: auto;
-  padding: 12px 14px;
-  display: grid;
-  gap: 10px;
+  padding: 12px 18px 22px;
+  display: block;
 }
 
 .drawer-foot {
+  min-height: 88px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 12px 14px;
+  padding: 15px 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015)),
     rgba(0, 0, 0, 0.24);
 }
 
+.comment-composer { position: relative; min-width: 0; flex: 1; }
 .drawer-foot textarea {
   width: 100%;
-  min-height: 82px;
+  min-height: 52px;
+  max-height: 110px;
   resize: none;
-  border-radius: 18px;
+  border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.13);
   background: rgba(255, 255, 255, 0.075);
   color: rgba(255, 255, 255, 0.92);
-  padding: 12px 13px;
+  padding: 12px 64px 10px 13px;
   outline: none;
   font: inherit;
   line-height: 1.55;
@@ -1052,13 +1083,7 @@ onBeforeUnmount(() => {
     0 0 0 3px rgba(254, 44, 85, 0.1);
 }
 
-.drawer-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-top: 10px;
-}
+.comment-composer .comment-action.primary { position: absolute; right: 7px; bottom: 8px; min-height: 32px; padding-inline: 11px; }
 
 .drawer-hint {
   color: rgba(255, 255, 255, 0.78);
@@ -1070,46 +1095,54 @@ onBeforeUnmount(() => {
 }
 
 .comment {
-  border: 1px solid rgba(255, 255, 255, 0.105);
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.035)),
-    rgba(255, 255, 255, 0.03);
-  border-radius: 18px;
-  padding: 12px 12px;
-  box-shadow: 0 14px 26px rgba(0, 0, 0, 0.18);
+  padding: 9px 0;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: start;
+  gap: 11px;
 }
 
+.comment-avatar { border-radius: 999px; transition: transform var(--duration-fast) ease; }
+.comment-avatar:hover { transform: translateY(-1px); }
+.comment-main { min-width: 0; padding: 12px 13px; border: 1px solid rgba(255,255,255,.075); border-radius: 15px; background: rgba(255,255,255,.035); transition: border-color var(--duration-fast) ease, background var(--duration-fast) ease; }
+.comment:hover .comment-main { border-color: rgba(255,255,255,.13); background: rgba(255,255,255,.05); }
 .comment-top {
-  display: grid;
-  gap: 3px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .comment-user {
-  font-weight: 700;
-  font-size: 13.5px;
-  letter-spacing: 0.01em;
+  min-width: 0;
+  overflow: hidden;
+  color: #e8e8eb;
+  font-weight: 750;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+.comment-user:hover { color: var(--accent); }
 
 .comment-meta {
-  font-size: 11.5px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: rgba(255, 255, 255, 0.46);
+  flex: 0 0 auto;
+  font-size: 9px;
+  color: var(--text-muted);
 }
 
 .comment-content {
   margin-top: 8px;
-  font-size: 14px;
-  line-height: 1.55;
-  color: rgba(255, 255, 255, 0.9);
+  font-size: 13px;
+  line-height: 1.65;
+  color: #f1f1f3;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 .comment-actions {
-  margin-top: 10px;
+  margin-top: 7px;
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
 
 .comment-action {
@@ -1182,4 +1215,62 @@ onBeforeUnmount(() => {
   .actions { right: 10px; bottom: 14px; }
   .act { width: 62px; padding: 9px 7px; border-radius: 17px; }
 }
+/* Keep the standalone player visually identical to the feed player. */
+.page { background: var(--surface-base); }
+.top { height: 52px; padding: 0 20px; background: rgba(11,11,13,.95); }
+.top-chip { padding: 7px 11px; border: 0; border-radius: 6px; background: var(--surface-raised); font-size: 12px; }
+.wrap { padding: 14px 20px; }
+
+@media (min-width: 901px) {
+  .stage {
+    width: min(1260px, calc(100% - 32px));
+    height: calc(100dvh - 62px - 52px - 28px);
+    overflow: hidden;
+    border: 0;
+    border-radius: 14px;
+    background: #050506;
+    box-shadow: 0 22px 64px rgba(0,0,0,.55);
+  }
+  .stage::before { display: none; }
+  .video,
+  .grad { border-radius: 14px; }
+  .grad { background: linear-gradient(to top, rgba(0,0,0,.82), transparent 48%); }
+  .meta { left: 20px; right: auto; bottom: 20px; max-width: min(760px, calc(100% - 116px)); }
+  .author-link { margin-bottom: 5px; font-size: 14px; }
+  .title { margin-bottom: 7px; font-size: clamp(22px, 2.2vw, 34px); line-height: 1.16; letter-spacing: -.025em; }
+  .desc { max-width: 100%; font-size: 12px; line-height: 1.5; }
+  .asset-link { margin-top: 7px; padding: 5px 8px; border: 0; border-radius: 6px; font-size: 10px; }
+  .actions { right: 14px; bottom: 18px; gap: 10px; }
+  .act {
+    width: 60px;
+    min-height: 60px;
+    padding: 6px 4px;
+    gap: 3px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
+  .act:hover { background: transparent; }
+  .act .icon {
+    width: 45px;
+    height: 45px;
+    border-radius: 50%;
+    background: #29292d;
+    transition: background var(--duration-fast) ease, transform var(--duration-fast) ease;
+  }
+  .act:hover .icon { background: #38383d; transform: translateY(-1px); }
+  .act-danger .icon { background: rgba(254,44,85,.18); }
+  .count { color: #d7d7db; font-size: 10px; font-weight: 750; }
+  .hint { top: 12px; left: 12px; }
+  .hint-pill,
+  .chip { padding: 5px 8px; border: 0; background: rgba(0,0,0,.58); font-size: 10px; }
+}
+
+.drawer { background: #151517; }
+.drawer-head { background: transparent; }
+.drawer-foot { background: #19191c; }
+.drawer-foot textarea,
+.comment-main { border-radius: 8px; background: #202024; }
 </style>

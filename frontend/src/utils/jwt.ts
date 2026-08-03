@@ -1,5 +1,6 @@
 export type JwtPayload = {
   account_id?: number
+  account_name?: string
   username?: string
   exp?: number
   iat?: number

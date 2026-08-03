@@ -3,8 +3,9 @@ defineProps<{ name: string; size?: number; filled?: boolean }>()
 </script>
 
 <template>
-  <svg :width="size ?? 24" :height="size ?? 24" viewBox="0 0 24 24" :fill="filled ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-    <template v-if="name === 'home'"><path d="m3 11 9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/></template>
+  <svg :width="size ?? 24" :height="size ?? 24" viewBox="0 0 24 24" :fill="filled && (name === 'heart' || name === 'hot') ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <template v-if="name === 'brand'"><rect class="brand-face" x="2.5" y="2.5" width="19" height="19" rx="5"/><path class="brand-cyan" d="M4.6 8v8"/><path class="brand-red" d="M19.4 8v8"/><path class="brand-letter" d="m6.6 7.8 2.7 8.4 2.7-8.4M13.7 7.8v8.4M17.4 7.8v8.4M13.7 12h3.7"/></template>
+    <template v-else-if="name === 'home'"><path d="m3 11 9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/></template>
     <template v-else-if="name === 'hot'"><path d="M12 22c4.4 0 7-3 7-7.2 0-3.2-1.8-6.1-5-8.8.2 2.8-1.5 4.2-3 4.8.3-3.7-1.8-6.2-3.2-7.8.2 4.4-2.8 6.1-2.8 11.8C5 19 7.7 22 12 22Z"/></template>
     <template v-else-if="name === 'plus'"><path d="M12 5v14M5 12h14"/></template>
     <template v-else-if="name === 'message'"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/></template>
@@ -23,5 +24,14 @@ defineProps<{ name: string; size?: number; filled?: boolean }>()
     <template v-else-if="name === 'volume-off'"><path d="M11 5 6.8 9H3v6h3.8l4.2 4V5ZM16 10l5 5M21 10l-5 5"/></template>
     <template v-else-if="name === 'warning'"><path d="M10.3 3.6 2.2 18a2 2 0 0 0 1.8 3h16a2 2 0 0 0 1.8-3L13.7 3.6a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></template>
     <template v-else-if="name === 'video'"><rect x="3" y="5" width="14" height="14" rx="3"/><path d="m17 10 4-2v8l-4-2"/></template>
+    <template v-else-if="name === 'search'"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></template>
+    <template v-else-if="name === 'check'"><path d="m7 12 3 3 7-7"/><circle cx="12" cy="12" r="9"/></template>
   </svg>
 </template>
+
+<style scoped>
+.brand-face { fill: #f5f5f7; stroke: rgba(255,255,255,.45); stroke-width: .7; }
+.brand-letter { fill: none; stroke: #101012; stroke-width: 1.55; }
+.brand-cyan { stroke: #25f4ee; stroke-width: 1.2; }
+.brand-red { stroke: #fe2c55; stroke-width: 1.2; }
+</style>

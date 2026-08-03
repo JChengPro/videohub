@@ -12,14 +12,13 @@ const router = useRouter()
 const toast = useToastStore()
 
 const busy = ref(false)
-const form = reactive({ username: '', oldPassword: '', newPassword: '' })
+const form = reactive({ oldPassword: '', newPassword: '' })
 
 async function submit() {
   if (busy.value) return
-  const username = form.username.trim()
   const oldPassword = form.oldPassword
   const newPassword = form.newPassword
-  if (!username || !oldPassword || !newPassword) {
+  if (!oldPassword || !newPassword) {
     toast.error('请把信息填完整')
     return
   }
@@ -35,7 +34,7 @@ async function submit() {
 
   busy.value = true
   try {
-    await accountApi.changePassword(username, oldPassword, newPassword)
+    await accountApi.changePassword(oldPassword, newPassword)
     toast.success('密码已修改，请重新登录')
     await router.push('/account')
   } catch (e) {
@@ -64,12 +63,11 @@ async function submit() {
         <div class="security-form">
           <div>
             <span class="form-kicker">修改密码</span>
-            <h2>验证账号信息</h2>
-            <p>填写原密码后设置新的登录密码</p>
+            <h2>验证当前密码</h2>
+            <p>当前登录账号验证通过后即可设置新密码</p>
           </div>
 
           <form @submit.prevent="submit">
-            <label><span>用户名</span><input v-model.trim="form.username" autocomplete="username" placeholder="输入用户名" /></label>
             <label><span>原密码</span><input v-model="form.oldPassword" type="password" autocomplete="current-password" placeholder="输入当前密码" /></label>
             <label><span>新密码</span><input v-model="form.newPassword" type="password" autocomplete="new-password" placeholder="8-64 位，必须包含字母和数字" @keydown.enter="submit" /></label>
             <button type="submit" :disabled="busy">{{ busy ? '正在修改...' : '确认修改密码' }}</button>
@@ -107,4 +105,30 @@ async function submit() {
 .back-login { width: 100%; margin-top: 12px; background: transparent; color: #777; font-size: 11px; }
 .back-login:hover { background: transparent; color: #fff; }
 @media (max-width: 960px) { .security-page { grid-template-columns: 1fr; } .security-copy { display: none; } .security-form-panel { min-height: calc(100vh - 100px); padding: 42px 28px; } }
+
+.security-page { min-height: calc(100dvh - 110px); border-radius: 12px; background: #151517; }
+.security-copy { background: #101012; }
+.security-copy::after { opacity: .06; background-size: 52px 52px; }
+.security-note { border-radius: 8px; }
+.security-form-panel { background: #19191c; }
+
+.security-page {
+  width: min(460px,100%);
+  min-height: auto;
+  margin: 42px auto;
+  display: block;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.security-copy { display: none; }
+.security-form-panel {
+  min-height: 560px;
+  padding: 44px 38px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-panel);
+}
+.security-form > div:first-child { text-align: center; }
 </style>

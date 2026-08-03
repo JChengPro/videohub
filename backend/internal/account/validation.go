@@ -16,6 +16,18 @@ const (
 )
 
 var usernamePattern = regexp.MustCompile(`^[\p{Han}A-Za-z0-9_]+$`)
+var accountNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
+
+func ValidateAccountName(accountName string) error {
+	length := utf8.RuneCountInString(accountName)
+	if length < 4 || length > 24 {
+		return errors.New("账号名长度必须为 4-24 个字符")
+	}
+	if !accountNamePattern.MatchString(accountName) {
+		return errors.New("账号名必须以字母开头，且只能包含字母、数字和下划线")
+	}
+	return nil
+}
 
 // ValidateUsername keeps account names predictable for display, search, and URLs.
 func ValidateUsername(username string) error {
@@ -55,4 +67,8 @@ func ValidatePassword(password string) error {
 
 func normalizeUsername(username string) string {
 	return strings.TrimSpace(username)
+}
+
+func NormalizeAccountName(accountName string) string {
+	return strings.ToLower(strings.TrimSpace(accountName))
 }

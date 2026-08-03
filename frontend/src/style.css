@@ -1,38 +1,38 @@
 :root {
   color-scheme: dark;
-  --bg: #0d0d0f;
-  --bg-card: #17171a;
+  --bg: #0b0b0d;
+  --bg-card: #151517;
   --bg-hover: #242428;
   --bg-input: #1d1d21;
-  --surface-base: #0d0d0f;
-  --surface-sidebar: #111114;
-  --surface-panel: #17171a;
+  --surface-base: #0b0b0d;
+  --surface-sidebar: #0b0b0d;
+  --surface-panel: #151517;
   --surface-raised: #1d1d21;
-  --surface-hover: #25252a;
-  --surface-strong: #303036;
-  --surface-overlay: rgba(23, 23, 26, 0.96);
-  --text: #f7f7f8;
-  --text-secondary: #b1b1b8;
-  --text-muted: #777780;
-  --border: rgba(255, 255, 255, 0.09);
-  --border-hover: rgba(255, 255, 255, 0.2);
-  --accent: #ff3b5c;
-  --accent-hover: #ff526e;
-  --accent-dim: rgba(255, 59, 92, 0.14);
-  --accent-cyan: #72d9e6;
-  --danger: #ff5367;
-  --ok: #55d597;
+  --surface-hover: #26262a;
+  --surface-strong: #323237;
+  --surface-overlay: rgba(15, 15, 17, 0.97);
+  --text: #f5f5f7;
+  --text-secondary: #b7b7bd;
+  --text-muted: #77777f;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-hover: rgba(255, 255, 255, 0.18);
+  --accent: #fe2c55;
+  --accent-hover: #e91d48;
+  --accent-dim: rgba(254, 44, 85, 0.14);
+  --accent-cyan: #25f4ee;
+  --danger: #ff4f69;
+  --ok: #4ade9a;
   --warning: #f5b94c;
-  --radius-sm: 8px;
-  --radius: 12px;
-  --radius-lg: 18px;
-  --radius-xl: 24px;
-  --shadow-sm: 0 8px 24px rgba(0, 0, 0, 0.2);
-  --shadow-lg: 0 24px 72px rgba(0, 0, 0, 0.45);
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 6px 20px rgba(0, 0, 0, 0.22);
+  --shadow-lg: 0 22px 64px rgba(0, 0, 0, 0.5);
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --duration-fast: 150ms;
   --duration: 220ms;
-  font-family: 'Avenir Next', 'SF Pro Text', 'PingFang SC', 'Microsoft YaHei UI', sans-serif;
+  font-family: Inter, 'SF Pro Text', 'PingFang SC', 'Microsoft YaHei UI', system-ui, sans-serif;
   line-height: 1.5;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -70,15 +70,13 @@ html, body {
 
 body {
   color: var(--text);
-  background:
-    radial-gradient(circle at 72% -12%, rgba(255, 59, 92, 0.055), transparent 30%),
-    var(--surface-base);
+  background: var(--surface-base);
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
 }
 
 ::selection {
-  background: rgba(255, 59, 92, 0.35);
+  background: rgba(254, 44, 85, 0.35);
   color: #fff;
 }
 
@@ -92,9 +90,9 @@ a:hover {
 }
 
 .container {
-  max-width: 1240px;
+  max-width: 1180px;
   margin: 0 auto;
-  padding: 20px 24px 72px;
+  padding: 24px 28px 72px;
 }
 
 /* ---- card ---- */
@@ -102,7 +100,7 @@ a:hover {
   background: var(--surface-panel);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 20px;
+  padding: 22px;
   transition: border-color var(--duration-fast) ease, background var(--duration-fast) ease;
 }
 
@@ -162,7 +160,8 @@ a:hover {
 
 /* ---- form ---- */
 label {
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: 650;
   color: var(--text-secondary);
   display: block;
   margin-bottom: 4px;
@@ -176,7 +175,7 @@ select {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text);
-  padding: 10px 12px;
+  padding: 11px 12px;
   outline: none;
   font-size: 14px;
   caret-color: var(--accent);
@@ -202,7 +201,7 @@ button {
   background: var(--bg-hover);
   color: var(--text);
   border-radius: var(--radius);
-  padding: 9px 16px;
+  padding: 10px 16px;
   font-size: 14px;
   cursor: pointer;
   touch-action: manipulation;
@@ -216,6 +215,7 @@ button:hover {
 button.primary {
   background: var(--accent);
   color: #fff;
+  font-weight: 750;
 }
 
 button.primary:hover {
@@ -251,6 +251,21 @@ select:focus-visible {
   background: rgba(255, 255, 255, 0.06);
   color: var(--text-secondary);
   font-size: 13px;
+}
+
+.vh-eyebrow {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.vh-page-title {
+  font-size: clamp(26px, 3vw, 38px);
+  font-weight: 850;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
 }
 
 .pill.ok {

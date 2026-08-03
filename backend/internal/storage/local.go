@@ -90,5 +90,5 @@ func (s *LocalStorage) URL(ctx context.Context, objectKey string, expires time.D
 	}
 
 	// 本地静态文件地址不会过期，因此这里暂时不使用 expires。
-	return fmt.Sprintf("%s/static/%s", s.baseURL, objectKey), nil
+	return fmt.Sprintf("/static/%s", objectKey), nil
 }

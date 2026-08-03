@@ -37,6 +37,11 @@ func (c *Client) Get(ctx context.Context, key string) (string, error) {
 	return c.rdb.Get(ctx, key).Result()
 }
 
+// GetDel 原子读取并删除一次性数据，WebSocket ticket 使用它避免重复连接。
+func (c *Client) GetDel(ctx context.Context, key string) (string, error) {
+	return c.rdb.GetDel(ctx, key).Result()
+}
+
 func (c *Client) Set(ctx context.Context, key string, value string, ttl time.Duration) error {
 	return c.rdb.Set(ctx, key, value, ttl).Err()
 }
@@ -199,4 +204,14 @@ func (c *Client) Expire(ctx context.Context, key string, ttl time.Duration) erro
 func (c *Client) Exists(ctx context.Context, key string) (bool, error) {
 	n, err := c.rdb.Exists(ctx, key).Result()
 	return n > 0, err
+}
+
+// Publish 和 Subscribe 为 API、Worker 之间的轻量实时事件总线。
+// 持久数据仍然保存在 MySQL，Pub/Sub 丢失不会造成业务数据丢失。
+func (c *Client) Publish(ctx context.Context, channel string, payload []byte) error {
+	return c.rdb.Publish(ctx, channel, payload).Err()
+}
+
+func (c *Client) Subscribe(ctx context.Context, channels ...string) *redis.PubSub {
+	return c.rdb.Subscribe(ctx, channels...)
 }

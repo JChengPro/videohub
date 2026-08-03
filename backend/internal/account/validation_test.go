@@ -2,6 +2,30 @@ package account
 
 import "testing"
 
+func TestValidateAccountName(t *testing.T) {
+	tests := []struct {
+		name        string
+		accountName string
+		valid       bool
+	}{
+		{name: "letters numbers underscore", accountName: "jcheng_2026", valid: true},
+		{name: "mixed case", accountName: "VideoHubUser", valid: true},
+		{name: "chinese", accountName: "视频用户01", valid: false},
+		{name: "starts with number", accountName: "2026user", valid: false},
+		{name: "too short", accountName: "abc", valid: false},
+		{name: "symbol", accountName: "user-name", valid: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateAccountName(tt.accountName)
+			if (err == nil) != tt.valid {
+				t.Fatalf("ValidateAccountName(%q) error = %v, valid = %v", tt.accountName, err, tt.valid)
+			}
+		})
+	}
+}
+
 func TestValidateUsername(t *testing.T) {
 	tests := []struct {
 		name     string

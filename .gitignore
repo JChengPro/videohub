@@ -40,6 +40,13 @@ go.work.sum
 .claude/
 .agents/
 
+# Local secrets and deployment material
+secrets/
+deploy/
+.env.*
+!.env.example
+!.env.*.example
+
 # Renamed backup of the old backend, kept out of the main GitHub repo
 backend_bak/
 
@@ -51,6 +58,7 @@ docker-compose.study.yml
 面试准备-Go开发实习生.md
 原版后端未实现功能对比.md
 VideoHub_最新项目详细介绍.md
+VideoHub_后续功能补齐优先级路线图.md
 *:Zone.Identifier
 
 # RabbitMQ local data

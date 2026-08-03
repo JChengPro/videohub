@@ -50,6 +50,7 @@ func setAuthContext(c *gin.Context, accountRepo *account.Repository, cacheClient
 		if err == nil {
 			if cachedToken != "" && cachedToken == tokenString {
 				c.Set("accountID", claims.AccountID)
+				c.Set("accountName", claims.AccountName)
 				c.Set("username", claims.Username)
 				return true
 			}
@@ -69,6 +70,7 @@ func setAuthContext(c *gin.Context, accountRepo *account.Repository, cacheClient
 	}
 
 	c.Set("accountID", claims.AccountID)
+	c.Set("accountName", claims.AccountName)
 	c.Set("username", claims.Username)
 	return true
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { api } from '../api'
@@ -9,6 +9,7 @@ import Avatar from '../components/Avatar.vue'
 import { useAuthStore } from '../stores/auth'
 import { useNotificationStore } from '../stores/notification'
 import { useToastStore } from '../stores/toast'
+import type { RealtimeEvent } from '../stores/realtime'
 
 const auth = useAuthStore()
 const notifications = useNotificationStore()
@@ -117,12 +118,20 @@ async function markAll() {
   }
 }
 
+function onRealtime(raw: Event) {
+  const event = (raw as CustomEvent<RealtimeEvent>).detail
+  if (event.type === 'notification.new') void load(true)
+}
+
 watch(() => auth.isLoggedIn, () => void load(true))
 
 onMounted(() => {
+  window.addEventListener('videohub:realtime', onRealtime)
   void load(true)
   void notifications.refresh()
 })
+
+onBeforeUnmount(() => window.removeEventListener('videohub:realtime', onRealtime))
 </script>
 
 <template>
@@ -139,6 +148,11 @@ onMounted(() => {
         {{ markAllBusy ? '处理中' : '全部已读' }}
       </button>
     </header>
+
+    <nav class="message-tabs">
+      <button class="active" type="button">互动通知</button>
+      <button type="button" @click="router.push('/chat')">私信</button>
+    </nav>
 
     <section v-if="!auth.isLoggedIn" class="empty">
       <AppIcon name="message" :size="38" />
@@ -168,7 +182,7 @@ onMounted(() => {
     <section v-else class="message-list" aria-label="互动消息">
       <article v-for="item in items" :key="item.id" :class="{ unread: !item.is_read }">
         <button class="actor" type="button" :aria-label="`查看 ${item.actor_username} 的主页`" @click="openActor(item)">
-          <Avatar :name="item.actor_username" :size="46" />
+          <Avatar :name="item.actor_username" :id="item.actor_id" :size="46" />
         </button>
         <button class="message-copy" type="button" :disabled="opening.has(item.id)" @click="open(item)">
           <b>{{ item.actor_username }}</b>
@@ -191,6 +205,10 @@ onMounted(() => {
 .messages-page {
   background: var(--mobile-surface);
 }
+
+.message-tabs { padding: 8px 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.message-tabs button { min-height: 38px; border-radius: 999px; background: var(--mobile-surface-raised); color: var(--mobile-text-muted); font-size: 11px; }
+.message-tabs button.active { background: var(--mobile-text); color: var(--mobile-bg); font-weight: 800; }
 
 .message-list {
   padding: 6px 14px calc(88px + env(safe-area-inset-bottom));
@@ -286,5 +304,39 @@ onMounted(() => {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+.message-tabs {
+  padding: 0 14px;
+  gap: 18px;
+  border-bottom: 1px solid var(--mobile-border);
+}
+.message-tabs button {
+  position: relative;
+  min-height: 45px;
+  border-radius: 0;
+  background: transparent;
+}
+.message-tabs button.active { background: transparent; color: var(--mobile-text); }
+.message-tabs button.active::after {
+  position: absolute;
+  right: 28%;
+  bottom: 0;
+  left: 28%;
+  height: 2px;
+  background: var(--mobile-text);
+  content: '';
+}
+.message-list { padding-top: 2px; }
+.message-list article { min-height: 74px; padding: 11px 2px; }
+.message-list article.unread { background: transparent; }
+.message-list article.unread::before {
+  position: absolute;
+  top: 15px;
+  left: -8px;
+  width: 2px;
+  height: 36px;
+  background: var(--mobile-accent);
+  content: '';
 }
 </style>

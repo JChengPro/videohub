@@ -35,7 +35,7 @@ const toast = useToastStore()
   grid-template-columns: auto 1fr auto;
   gap: 10px;
   align-items: center;
-  border-radius: var(--radius);
+  border-radius: 8px;
   padding: 11px 12px;
   backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -90,7 +90,7 @@ const toast = useToastStore()
 .toast-x {
   width: 30px;
   height: 30px;
-  border-radius: 10px;
+  border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.08);
   color: rgba(255, 255, 255, 0.88);

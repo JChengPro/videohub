@@ -9,6 +9,7 @@ import AppShell from '../components/AppShell.vue'
 import { useAuthStore } from '../stores/auth'
 import { useNotificationStore } from '../stores/notification'
 import { useToastStore } from '../stores/toast'
+import type { RealtimeEvent } from '../stores/realtime'
 
 type Filter = 'all' | NotificationType
 
@@ -130,7 +131,13 @@ async function markAllRead() {
   }
 }
 
+function onRealtime(raw: Event) {
+  const event = (raw as CustomEvent<RealtimeEvent>).detail
+  if (event.type === 'notification.new') void load(true)
+}
+
 onMounted(async () => {
+  window.addEventListener('videohub:realtime', onRealtime)
   if (auth.isLoggedIn) {
     await Promise.all([load(true), notificationStore.refreshUnread()])
   }
@@ -144,7 +151,10 @@ watch(() => auth.isLoggedIn, (loggedIn) => {
   }
 })
 
-onBeforeUnmount(() => { loadRequest += 1 })
+onBeforeUnmount(() => {
+  loadRequest += 1
+  window.removeEventListener('videohub:realtime', onRealtime)
+})
 </script>
 
 <template>
@@ -160,6 +170,11 @@ onBeforeUnmount(() => { loadRequest += 1 })
           全部已读
         </button>
       </header>
+
+      <nav class="message-kinds">
+        <RouterLink class="active" to="/messages">互动通知</RouterLink>
+        <RouterLink to="/messages/chat">私信</RouterLink>
+      </nav>
 
       <div v-if="!auth.isLoggedIn" class="empty-panel">
         <strong>登录后查看消息</strong>
@@ -228,6 +243,7 @@ onBeforeUnmount(() => { loadRequest += 1 })
 .messages-header p { margin-top: 6px; color: var(--text-secondary); font-size: 12px; }
 .messages-header button { border: 1px solid var(--border); background: var(--surface-hover); font-size: 12px; }
 .filters { margin: 16px 0 10px; display: flex; gap: 6px; }
+.message-kinds { margin: 14px 0 0; display: flex; gap: 6px; }.message-kinds a { padding: 8px 14px; border-radius: 999px; color: var(--text-secondary); font-size: 12px; }.message-kinds a.active { background: #fff; color: #111; font-weight: 800; }
 .filters button { padding: 8px 14px; border-radius: 999px; background: transparent; color: var(--text-secondary); font-size: 12px; }
 .filters button.active { background: #fff; color: #111; font-weight: 700; }
 .message-panel { overflow: hidden; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-panel); }
@@ -250,4 +266,24 @@ onBeforeUnmount(() => { loadRequest += 1 })
 .empty-panel.error { color: var(--accent); }
 .login-link { margin-top: 8px; padding: 8px 18px; border-radius: 6px; background: var(--accent); color: #fff; font-size: 12px; }
 @media (max-width: 700px) { .messages-header { padding: 22px; align-items: flex-start; flex-direction: column; } .message-row { grid-template-columns: 42px minmax(0,1fr); padding: 14px; } .message-meta { grid-column: 2; } }
+
+.messages-page { max-width: 960px; }
+.messages-header {
+  min-height: 118px;
+  padding: 18px 2px 22px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+}
+.messages-header h1 { font-size: 34px; font-weight: 850; }
+.messages-header button { border: 0; border-radius: 6px; }
+.message-kinds { border-bottom: 1px solid var(--border); }
+.message-kinds a,
+.filters button { border-radius: 6px; }
+.message-kinds a.active,
+.filters button.active { background: var(--surface-raised); color: #fff; }
+.message-panel { border-color: transparent; border-radius: 8px; }
+.message-row { min-height: 78px; padding: 13px 16px; }
+.message-row.unread { background: rgba(254,44,85,.055); }
 </style>

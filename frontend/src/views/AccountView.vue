@@ -12,17 +12,20 @@ import * as videoApi from '../api/video'
 import { useAuthStore } from '../stores/auth'
 import { useSocialStore } from '../stores/social'
 import { useToastStore } from '../stores/toast'
+import { useDialogStore } from '../stores/dialog'
 
 const router = useRouter()
 const auth = useAuthStore()
 const social = useSocialStore()
 const toast = useToastStore()
+const dialog = useDialogStore()
 
 const busy = ref(false)
-const loginForm = reactive({ username: '', password: '' })
+const loginForm = reactive({ accountName: '', password: '' })
 
 const me = computed(() => ({
   id: auth.claims?.account_id ?? 0,
+  accountName: auth.claims?.account_name ?? '',
   username: auth.claims?.username ?? '',
 }))
 
@@ -106,7 +109,12 @@ async function goVideo(id: number) {
 
 async function deleteMyVideo(videoId: number) {
   if (deletingVideoId.value === videoId) return
-  if (!window.confirm('确认删除这个视频？相关点赞和评论也会一起删除。')) return
+  if (!await dialog.ask({
+    title: '删除这个视频？',
+    message: '删除后作品将不再公开展示，相关点赞和评论也会一并移除。',
+    confirmLabel: '删除视频',
+    tone: 'danger',
+  })) return
 
   deletingVideoId.value = videoId
   try {
@@ -134,16 +142,16 @@ function openLikedVideos() {
 
 async function onLogin() {
   if (busy.value) return
-  const username = loginForm.username.trim()
+  const accountName = loginForm.accountName.trim().toLowerCase()
   const password = loginForm.password.trim()
-  if (!username || !password) {
-    toast.error('请输入用户名和密码')
+  if (!accountName || !password) {
+    toast.error('请输入账号名和密码')
     return
   }
 
   busy.value = true
   try {
-    const res = await accountApi.login(username, password)
+    const res = await accountApi.login(accountName, password)
     auth.setToken(res.token)
     toast.success('登录成功')
     await social.refreshMine()
@@ -253,10 +261,10 @@ watch(
 
         <form class="login-form" @submit.prevent="onLogin">
           <label>
-            <span>用户名</span>
+            <span>账号名</span>
             <div class="login-input">
               <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
-              <input v-model.trim="loginForm.username" autocomplete="username" placeholder="输入用户名" />
+              <input v-model.trim="loginForm.accountName" autocomplete="username" placeholder="输入唯一账号名" />
             </div>
           </label>
           <label>
@@ -298,8 +306,8 @@ watch(
 
             <div class="profile-copy">
               <span class="profile-kicker">VIDEOHUB CREATOR</span>
-              <h1>@{{ me.username }}</h1>
-              <p class="profile-id">VideoHub ID：{{ me.id }}</p>
+              <h1>{{ me.username }}</h1>
+              <p class="profile-id">@{{ me.accountName || 'loading' }} · VideoHub ID {{ me.id }}</p>
               <p class="profile-bio">记录生活片段，分享每一种真实表达。</p>
             </div>
 
@@ -408,8 +416,8 @@ watch(
           <button v-for="u in listItems" v-if="!drawerLoading && !drawerError" :key="u.id" class="user-row" type="button" @click="goUser(u.id)">
             <UserAvatar :username="u.username" :id="u.id" :size="40" />
             <div class="user-meta">
-              <div class="user-name">@{{ u.username }}</div>
-              <div class="user-id mono">#{{ u.id }}</div>
+              <div class="user-name">{{ u.username }}</div>
+              <div class="user-id mono">@{{ u.account_name }}</div>
             </div>
           </button>
         </div>
@@ -1132,5 +1140,88 @@ watch(
 
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+}
+
+.login-wrap { min-height: calc(100dvh - 110px); border-radius: 12px; background: #151517; }
+.login-card { background: #19191c; }
+.login-atmosphere { background: #101012; }
+.login-atmosphere::after { opacity: .06; }
+.profile-page { max-width: 1040px; margin: 0 auto; gap: 10px; }
+.profile-hero,
+.profile-content { border-color: transparent; border-radius: 8px; background: var(--surface-panel); }
+.profile-banner {
+  height: 128px;
+  background: linear-gradient(120deg, #18181b, #232327 58%, rgba(254,44,85,.16));
+}
+.banner-grid { opacity: .06; }
+.banner-orb { opacity: .32; }
+.profile-info { min-height: 128px; }
+.profile-content { padding-bottom: 20px; }
+.profile-empty { border-style: solid; border-radius: 8px; background: #1b1b1e; }
+.video-grid { gap: 4px; }
+.video-card { border: 0; border-radius: 6px; background: #1b1b1e; }
+.user-row { border: 0; border-radius: 7px; }
+.drawer { border-radius: 10px; }
+
+/* TikTok-like account entry: focused auth panel, no marketing split screen. */
+.login-wrap {
+  width: min(460px, 100%);
+  min-height: auto;
+  margin: 42px auto;
+  display: block;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.login-atmosphere { display: none; }
+.login-card {
+  min-height: 560px;
+  padding: 46px 42px 36px;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-panel);
+}
+.login-heading { text-align: center; }
+.login-heading h2 { font-size: 30px; }
+.login-benefits { justify-content: center; }
+
+/* TikTok-like profile header: avatar, identity, actions and stats in one plane. */
+.profile-banner { display: none; }
+.profile-hero { overflow: visible; background: transparent; }
+.profile-info {
+  min-height: auto;
+  padding: 30px 28px 16px;
+  display: grid;
+  grid-template-columns: 104px minmax(0,1fr) auto;
+  align-items: center;
+  gap: 22px;
+}
+.profile-avatar {
+  position: static;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.profile-copy h1 { font-size: 28px; }
+.profile-bio { margin-top: 8px; }
+.profile-stats { padding: 2px 28px 26px 154px; gap: 28px; }
+.profile-content { border-top: 1px solid var(--border); background: transparent; }
+.profile-tabs { justify-content: center; gap: 44px; }
+.content-toolbar { padding-top: 18px; }
+.video-grid { grid-template-columns: repeat(5,minmax(0,1fr)); }
+@media (max-width: 900px) {
+  .profile-info { grid-template-columns: 90px minmax(0,1fr); }
+  .profile-actions { grid-column: 2; }
+  .profile-stats { padding-left: 140px; }
+  .video-grid { grid-template-columns: repeat(3,minmax(0,1fr)); }
+}
+@media (max-width: 760px) {
+  .login-wrap { margin: 12px auto; }
+  .login-card { min-height: calc(100dvh - 110px); padding: 36px 24px; }
+  .profile-info { padding: 24px 18px 14px; grid-template-columns: 76px minmax(0,1fr); gap: 14px; }
+  .profile-actions { grid-column: 1/-1; }
+  .profile-stats { padding: 4px 18px 20px; }
 }
 </style>
