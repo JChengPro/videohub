@@ -1,7 +1,6 @@
 package video
 
 import (
-	"backend/internal/mq"
 	"backend/internal/storage"
 	"context"
 	"errors"
@@ -10,12 +9,11 @@ import (
 type LikeService struct {
 	likeRepo  *LikeRepository
 	videoRepo *Repository
-	rabbit    *mq.RabbitMQ
 	storage   storage.Storage
 }
 
-func NewLikeService(likeRepo *LikeRepository, videoRepo *Repository, rabbit *mq.RabbitMQ, fileStorage storage.Storage) *LikeService {
-	return &LikeService{likeRepo: likeRepo, videoRepo: videoRepo, rabbit: rabbit, storage: fileStorage}
+func NewLikeService(likeRepo *LikeRepository, videoRepo *Repository, fileStorage storage.Storage) *LikeService {
+	return &LikeService{likeRepo: likeRepo, videoRepo: videoRepo, storage: fileStorage}
 }
 
 func (s *LikeService) Like(ctx context.Context, videoID uint, accountID uint) (LikeStateResponse, error) {

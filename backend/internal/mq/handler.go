@@ -16,6 +16,19 @@ func NewHandler(rabbit *RabbitMQ) *Handler {
 	return &Handler{rabbit: rabbit}
 }
 
+func (h *Handler) openRequestChannel(c *gin.Context) (*AMQPChannel, bool) {
+	if h == nil || h.rabbit == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "rabbitmq is unavailable"})
+		return nil, false
+	}
+	channel, err := h.rabbit.NewChannel()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return nil, false
+	}
+	return channel, true
+}
+
 type PublishRequest struct {
 	Message string `json:"message"`
 }
@@ -30,11 +43,17 @@ func (h *Handler) Publish(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "message is required"})
 		return
 	}
-	if err := h.rabbit.DeclareQueue(TestQueueName); err != nil {
+	channel, ok := h.openRequestChannel(c)
+	if !ok {
+		return
+	}
+	defer channel.Close()
+
+	if err := channel.DeclareQueue(TestQueueName); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	if err := h.rabbit.Publish(c.Request.Context(), TestQueueName, req.Message); err != nil {
+	if err := channel.Publish(c.Request.Context(), TestQueueName, req.Message); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -50,11 +69,17 @@ func (h *Handler) PublishVideoEvent(c *gin.Context) {
 		AuthorID:  1,
 		Title:     "测试视频",
 	}
-	if err := h.rabbit.DeclareQueue(TestQueueName); err != nil {
+	channel, ok := h.openRequestChannel(c)
+	if !ok {
+		return
+	}
+	defer channel.Close()
+
+	if err := channel.DeclareQueue(TestQueueName); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	if err := h.rabbit.PublishJSON(c.Request.Context(), TestQueueName, evevt); err != nil {
+	if err := channel.PublishJSON(c.Request.Context(), TestQueueName, evevt); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

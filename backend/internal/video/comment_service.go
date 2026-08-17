@@ -1,7 +1,6 @@
 package video
 
 import (
-	"backend/internal/mq"
 	"context"
 	"errors"
 	"strings"
@@ -10,14 +9,12 @@ import (
 type CommentService struct {
 	repo      *CommentRepository
 	videoRepo *Repository
-	rabbit    *mq.RabbitMQ
 }
 
-func NewCommentService(repo *CommentRepository, videoRepo *Repository, rabbit *mq.RabbitMQ) *CommentService {
+func NewCommentService(repo *CommentRepository, videoRepo *Repository) *CommentService {
 	return &CommentService{
 		repo:      repo,
 		videoRepo: videoRepo,
-		rabbit:    rabbit,
 	}
 }
 

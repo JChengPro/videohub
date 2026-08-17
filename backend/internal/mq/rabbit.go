@@ -5,6 +5,7 @@ import (
 	"backend/internal/config"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -19,39 +20,63 @@ import (
 */
 
 type RabbitMQ struct {
-	conn *amqp.Connection //conn RabbitMQ 的 TCP 连接
-	ch   *amqp.Channel    //ch：通信通道，真正声明队列、发消息、收消息都通过 ch 做
+	conn *amqp.Connection // conn 是进程内复用的 RabbitMQ TCP 连接。
 }
 
-// 构造函数
-//  1. 连接 RabbitMQ
-//  2. 创建 channel
-//  3. 返回 RabbitMQ 对象给外部使用
+// AMQPChannel 包装一条具体的 AMQP Channel。
+// Channel 应该由单一并发角色创建、使用和关闭。
+type AMQPChannel struct {
+	ch *amqp.Channel
+}
+
+var (
+	errRabbitMQConnectionUnavailable = errors.New("rabbitmq connection is unavailable")
+	errAMQPChannelUnavailable        = errors.New("amqp channel is unavailable")
+)
+
+// NewRabbitMQ 只创建 Connection，不预先创建共享 Channel。
 func NewRabbitMQ(cfg config.RabbitMQConfig) (*RabbitMQ, error) {
 	url := fmt.Sprintf("amqp://%s:%s@%s:%d/", cfg.Username, cfg.Password, cfg.Host, cfg.Port)
 	conn, err := amqp.Dial(url)
 	if err != nil {
 		return nil, err
 	}
-	ch, err := conn.Channel()
-	if err != nil {
-		conn.Close()
-		return nil, err
-	}
-	return &RabbitMQ{
-		conn: conn,
-		ch:   ch,
-	}, nil
+	return &RabbitMQ{conn: conn}, nil
 }
 
-// 关闭函数
-func (r *RabbitMQ) Close() {
-	if r.ch != nil {
-		r.ch.Close()
+// NewChannel 从复用的 Connection 上创建一条独立 Channel。
+func (r *RabbitMQ) NewChannel() (*AMQPChannel, error) {
+	if r == nil || r.conn == nil {
+		return nil, errRabbitMQConnectionUnavailable
 	}
-	if r.conn != nil {
-		r.conn.Close()
+	ch, err := r.conn.Channel()
+	if err != nil {
+		return nil, err
 	}
+	return &AMQPChannel{ch: ch}, nil
+}
+
+// Close 关闭进程级 Connection，应由创建 RabbitMQ 的 main 调用。
+func (r *RabbitMQ) Close() error {
+	if r == nil || r.conn == nil {
+		return nil
+	}
+	return r.conn.Close()
+}
+
+// Close 只关闭当前 Channel，不影响同一 Connection 上的其他 Channel。
+func (c *AMQPChannel) Close() error {
+	if c == nil || c.ch == nil {
+		return nil
+	}
+	return c.ch.Close()
+}
+
+func (c *AMQPChannel) raw() (*amqp.Channel, error) {
+	if c == nil || c.ch == nil {
+		return nil, errAMQPChannelUnavailable
+	}
+	return c.ch, nil
 }
 
 /*
@@ -64,9 +89,13 @@ func (r *RabbitMQ) Close() {
 	false：不等待 RabbitMQ 响应，通常写 false
 	nil：额外参数，暂时不用
 */
-func (r *RabbitMQ) DeclareQueue(queueName string) error {
+func (c *AMQPChannel) DeclareQueue(queueName string) error {
+	ch, err := c.raw()
+	if err != nil {
+		return err
+	}
 	//告诉 RabbitMQ，准备一个队列用来放消息
-	_, err := r.ch.QueueDeclare(
+	_, err = ch.QueueDeclare(
 		queueName,
 		true,
 		false,
@@ -78,49 +107,35 @@ func (r *RabbitMQ) DeclareQueue(queueName string) error {
 }
 
 // 发送消息
-func (r *RabbitMQ) Publish(ctx context.Context, queueName string, body string) error {
-	return r.ch.PublishWithContext(
-		ctx,
-		"",        //exchange 传 ""，不用交换机
-		queueName, //routingKey 传 queueName
-		false,
-		false,
-		amqp.Publishing{
-			ContentType:  "text/plain",
-			DeliveryMode: amqp.Persistent,
-			Body:         []byte(body),
-		},
-	)
+func (c *AMQPChannel) Publish(ctx context.Context, queueName string, body string) error {
+	return c.publish(ctx, queueName, "text/plain", []byte(body))
 }
 
-func (r *RabbitMQ) PublishJSONBody(ctx context.Context, queueName string, body string) error {
-	return r.ch.PublishWithContext(
-		ctx,
-		"",
-		queueName,
-		false,
-		false,
-		amqp.Publishing{
-			ContentType:  "application/json",
-			DeliveryMode: amqp.Persistent,
-			Body:         []byte(body),
-		},
-	)
+func (c *AMQPChannel) PublishJSONBody(ctx context.Context, queueName string, body string) error {
+	return c.publish(ctx, queueName, "application/json", []byte(body))
 }
 
-func (r *RabbitMQ) PublishJSON(ctx context.Context, queueName string, payload any) error {
+func (c *AMQPChannel) PublishJSON(ctx context.Context, queueName string, payload any) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-	return r.ch.PublishWithContext(
+	return c.publish(ctx, queueName, "application/json", body)
+}
+
+func (c *AMQPChannel) publish(ctx context.Context, queueName, contentType string, body []byte) error {
+	ch, err := c.raw()
+	if err != nil {
+		return err
+	}
+	return ch.PublishWithContext(
 		ctx,
-		"",
-		queueName,
+		"",        // exchange 传空字符串，使用 RabbitMQ 默认交换机。
+		queueName, // routing key 与队列名一致。
 		false,
 		false,
 		amqp.Publishing{
-			ContentType:  "application/json",
+			ContentType:  contentType,
 			DeliveryMode: amqp.Persistent,
 			Body:         body,
 		},
@@ -128,8 +143,12 @@ func (r *RabbitMQ) PublishJSON(ctx context.Context, queueName string, payload an
 }
 
 // 消费消息
-func (r *RabbitMQ) Consume(queueName string) (<-chan amqp.Delivery, error) {
-	return r.ch.Consume(
+func (c *AMQPChannel) Consume(queueName string) (<-chan amqp.Delivery, error) {
+	ch, err := c.raw()
+	if err != nil {
+		return nil, err
+	}
+	return ch.Consume(
 		queueName,
 		"",
 		false, //autoAck 不需要自动确认消息

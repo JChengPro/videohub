@@ -81,12 +81,21 @@ func main() {
 }
 
 func consumeNotification(rabbit *mq.RabbitMQ, notificationWorker *worker.NotificationWorker) {
-	if err := rabbit.DeclareQueue(mq.NotificationQueueName); err != nil {
-		log.Fatalf("declare notification queue failed: %v", err)
-	}
-	deliveries, err := rabbit.Consume(mq.NotificationQueueName)
+	consumerChannel, err := rabbit.NewChannel()
 	if err != nil {
-		log.Fatalf("consume notification queue failed: %v", err)
+		log.Printf("create notification consumer channel failed: %v", err)
+		return
+	}
+	defer consumerChannel.Close()
+
+	if err := consumerChannel.DeclareQueue(mq.NotificationQueueName); err != nil {
+		log.Printf("declare notification queue failed: %v", err)
+		return
+	}
+	deliveries, err := consumerChannel.Consume(mq.NotificationQueueName)
+	if err != nil {
+		log.Printf("consume notification queue failed: %v", err)
+		return
 	}
 	log.Println("notification worker started")
 
@@ -109,13 +118,22 @@ func consumeNotification(rabbit *mq.RabbitMQ, notificationWorker *worker.Notific
 }
 
 func consumeVideoPublished(rabbit *mq.RabbitMQ, videoWorker *worker.VideoWorker) {
-	if err := rabbit.DeclareQueue(mq.VideoPublishedQueueName); err != nil {
-		log.Fatalf("declare video queue failed: %v", err)
+	consumerChannel, err := rabbit.NewChannel()
+	if err != nil {
+		log.Printf("create video consumer channel failed: %v", err)
+		return
+	}
+	defer consumerChannel.Close()
+
+	if err := consumerChannel.DeclareQueue(mq.VideoPublishedQueueName); err != nil {
+		log.Printf("declare video queue failed: %v", err)
+		return
 	}
 
-	deliveries, err := rabbit.Consume(mq.VideoPublishedQueueName)
+	deliveries, err := consumerChannel.Consume(mq.VideoPublishedQueueName)
 	if err != nil {
-		log.Fatalf("consume video queue failed: %v", err)
+		log.Printf("consume video queue failed: %v", err)
+		return
 	}
 
 	log.Println("video worker started")
@@ -148,12 +166,21 @@ func consumeVideoPublished(rabbit *mq.RabbitMQ, videoWorker *worker.VideoWorker)
 }
 
 func consumeLike(rabbit *mq.RabbitMQ, likeWorker *worker.LikeWorker) {
-	if err := rabbit.DeclareQueue(mq.LikeQueueName); err != nil {
-		log.Fatalf("declare like queue failed: %v", err)
-	}
-	deliveries, err := rabbit.Consume(mq.LikeQueueName)
+	consumerChannel, err := rabbit.NewChannel()
 	if err != nil {
-		log.Fatalf("consume like queue failed: %v", err)
+		log.Printf("create like consumer channel failed: %v", err)
+		return
+	}
+	defer consumerChannel.Close()
+
+	if err := consumerChannel.DeclareQueue(mq.LikeQueueName); err != nil {
+		log.Printf("declare like queue failed: %v", err)
+		return
+	}
+	deliveries, err := consumerChannel.Consume(mq.LikeQueueName)
+	if err != nil {
+		log.Printf("consume like queue failed: %v", err)
+		return
 	}
 	log.Println("like worker started")
 
@@ -189,12 +216,21 @@ func consumeLike(rabbit *mq.RabbitMQ, likeWorker *worker.LikeWorker) {
 }
 
 func consumeComment(rabbit *mq.RabbitMQ, commentWorker *worker.CommentWorker) {
-	if err := rabbit.DeclareQueue(mq.CommentQueueName); err != nil {
-		log.Fatalf("declare comment queue failed: %v", err)
-	}
-	deliveries, err := rabbit.Consume(mq.CommentQueueName)
+	consumerChannel, err := rabbit.NewChannel()
 	if err != nil {
-		log.Fatalf("consume comment queue failed: %v", err)
+		log.Printf("create comment consumer channel failed: %v", err)
+		return
+	}
+	defer consumerChannel.Close()
+
+	if err := consumerChannel.DeclareQueue(mq.CommentQueueName); err != nil {
+		log.Printf("declare comment queue failed: %v", err)
+		return
+	}
+	deliveries, err := consumerChannel.Consume(mq.CommentQueueName)
+	if err != nil {
+		log.Printf("consume comment queue failed: %v", err)
+		return
 	}
 	log.Println("comment worker started")
 
@@ -230,13 +266,22 @@ func consumeComment(rabbit *mq.RabbitMQ, commentWorker *worker.CommentWorker) {
 }
 
 func consumeSocial(rabbit *mq.RabbitMQ, socialWorker *worker.SocialWorker) {
-	if err := rabbit.DeclareQueue(mq.SocialQueueName); err != nil {
-		log.Fatalf("declare social queue failed: %v", err)
+	consumerChannel, err := rabbit.NewChannel()
+	if err != nil {
+		log.Printf("create social consumer channel failed: %v", err)
+		return
+	}
+	defer consumerChannel.Close()
+
+	if err := consumerChannel.DeclareQueue(mq.SocialQueueName); err != nil {
+		log.Printf("declare social queue failed: %v", err)
+		return
 	}
 
-	deliveries, err := rabbit.Consume(mq.SocialQueueName)
+	deliveries, err := consumerChannel.Consume(mq.SocialQueueName)
 	if err != nil {
-		log.Fatalf("consume social queue failed: %v", err)
+		log.Printf("consume social queue failed: %v", err)
+		return
 	}
 
 	log.Println("social worker started")
