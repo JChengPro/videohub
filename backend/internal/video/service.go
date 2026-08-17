@@ -2,7 +2,6 @@ package video
 
 import (
 	"backend/internal/cache"
-	"backend/internal/mq"
 	"backend/internal/storage"
 	"context"
 	"encoding/json"
@@ -21,17 +20,15 @@ import (
 type Service struct {
 	repo         *Repository
 	cache        *cache.Client
-	rabbit       *mq.RabbitMQ
 	fileStorage  storage.Storage
 	cacheTTL     time.Duration
 	detailLoadMu sync.Mutex //video detail cache miss 之后的重建过程  > 同一时间，只有一个 goroutine 可以负责“查 MySQL 并把详情缓存写回 Redis”。
 }
 
-func NewService(repo *Repository, cacheClient *cache.Client, rabbit *mq.RabbitMQ, fileStorage storage.Storage) *Service {
+func NewService(repo *Repository, cacheClient *cache.Client, fileStorage storage.Storage) *Service {
 	return &Service{
 		repo:        repo,
 		cache:       cacheClient,
-		rabbit:      rabbit,
 		fileStorage: fileStorage,
 		cacheTTL:    5 * time.Minute,
 	}

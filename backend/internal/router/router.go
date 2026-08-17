@@ -73,7 +73,7 @@ func New(
 		protectedAccountGroup.POST("/avatar", accountHandler.UploadAvatar)
 	}
 	videoRepo := video.NewRepository(db)
-	videoService := video.NewService(videoRepo, redisClient, rabbit, fileStorage)
+	videoService := video.NewService(videoRepo, redisClient, fileStorage)
 	videoHandler := video.NewHandler(videoService, fileStorage)
 
 	videoGroup := r.Group("/video")
@@ -112,7 +112,7 @@ func New(
 		protectedFeedGroup.POST("/listByFollowing", feedHandler.ListFollowing)
 	}
 
-	likeService := video.NewLikeService(likeRepo, videoRepo, rabbit, fileStorage)
+	likeService := video.NewLikeService(likeRepo, videoRepo, fileStorage)
 	likeHandler := video.NewLikeHandler(likeService)
 	likeGroup := r.Group("/like")
 	protectedLikeGroup := likeGroup.Group("")
@@ -125,7 +125,7 @@ func New(
 	}
 
 	commentRepo := video.NewCommentRepository(db)
-	commentService := video.NewCommentService(commentRepo, videoRepo, rabbit)
+	commentService := video.NewCommentService(commentRepo, videoRepo)
 	commentHandler := video.NewCommentHandler(commentService)
 	commentGroup := r.Group("/comment")
 	{

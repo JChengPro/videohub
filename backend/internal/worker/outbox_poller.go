@@ -18,12 +18,24 @@ func StartOutboxPoller(ctx context.Context, repo *video.Repository, rabbit *mq.R
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
-	if err := rabbit.DeclareQueue(mq.VideoPublishedQueueName); err != nil {
-		log.Printf("Outbox poller declare queue failed: %v", err)
-		return
-	}
 
 	go func() {
+		publisher, err := rabbit.NewChannel()
+		if err != nil {
+			log.Printf("create outbox publisher channel failed: %v", err)
+			return
+		}
+		defer func() {
+			if err := publisher.Close(); err != nil {
+				log.Printf("close outbox publisher channel failed: %v", err)
+			}
+		}()
+
+		if err := publisher.DeclareQueue(mq.VideoPublishedQueueName); err != nil {
+			log.Printf("Outbox poller declare queue failed: %v", err)
+			return
+		}
+
 		//表示定时器，比如每 2 秒触发一次。
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
@@ -37,13 +49,13 @@ func StartOutboxPoller(ctx context.Context, repo *video.Repository, rabbit *mq.R
 				//ticker.C 是 time.Ticker 提供的定时 channel，每隔固定时间会触发一次，所以 poller 可以定时扫描 outbox 表。
 				//ctx.Done() 是 context 的取消通知 channel，当服务关闭或外部取消 context 时会触发，poller 收到后 return 退出 goroutine，实现优雅停止。
 			case <-ticker.C:
-				publishPendingOutbox(ctx, repo, rabbit)
+				publishPendingOutbox(ctx, repo, publisher)
 			}
 		}
 	}()
 }
 
-func publishPendingOutbox(ctx context.Context, repo *video.Repository, rabbit *mq.RabbitMQ) {
+func publishPendingOutbox(ctx context.Context, repo *video.Repository, publisher *mq.AMQPChannel) {
 	// 每次 poller 扫 pending 之前，先把卡死的 publishing 消息恢复成 pending。
 	if err := repo.ResetStalePublishingOutbox(ctx, time.Minute); err != nil {
 		log.Printf("outbox reset stale publishing failed: %v", err)
@@ -80,14 +92,14 @@ func publishPendingOutbox(ctx context.Context, repo *video.Repository, rabbit *m
 			)
 		}
 		// Outbox 可以投递到多个业务队列，发送前确保目标队列已经存在。
-		if err := rabbit.DeclareQueue(queueName); err != nil {
+		if err := publisher.DeclareQueue(queueName); err != nil {
 			log.Printf("Outbox declare queue failed: id=%d queue=%s err=%v", msg.ID, queueName, err)
 			if markErr := repo.RecordOutboxPublishFailure(ctx, msg.ID, err); markErr != nil {
 				log.Printf("outbox record declare failure failed: id=%d err=%v", msg.ID, markErr)
 			}
 			continue
 		}
-		if err := rabbit.PublishJSONBody(ctx, queueName, payload); err != nil {
+		if err := publisher.PublishJSONBody(ctx, queueName, payload); err != nil {
 			log.Printf("Outbox publish failed: id=%d video_id=%d err=%v", msg.ID, msg.VideoID, err)
 
 			if markErr := repo.RecordOutboxPublishFailure(ctx, msg.ID, err); markErr != nil {
