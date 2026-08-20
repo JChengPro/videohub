@@ -34,7 +34,7 @@ VideoHub 是一个基于 Go 开发的视频内容社区，支持账号登录、�
 | 通知 | 点赞、评论、关注异步通知、未读数、标记已读、消息页面 |
 | 私信 | WebSocket 实时收发、会话请求、三条消息额度、接收者回复即接受、互关直聊、已读回执、拉黑、未读数 |
 | 客户端 | 桌面沉浸式播放、手机竖屏滑动、双端评论互动、响应式布局、自动设备分流 |
-| 工程能力 | Outbox、消费幂等、独立通知队列、三级缓存、冷热分离、限流、Docker Compose |
+| 工程能力 | Outbox、消费幂等、RabbitMQ Connection/Channel 隔离、独立通知队列、三级缓存、冷热分离、限流、Docker Compose |
 
 ## 双端客户端体验
 
@@ -79,7 +79,7 @@ VideoHub 是一个基于 Go 开发的视频内容社区，支持账号登录、�
 
 ## 系统架构
 
-![整体架构](picture/整体架构.png)
+以下文本图以当前 `main` 分支代码为准；`picture/` 中保留的是早期设计资料，不作为当前架构依据。
 
 ```text
 Desktop / Mobile Browser
@@ -141,6 +141,30 @@ Go API + WebSocket Hub
 | `like_created` / `like_deleted` | 修改点赞关系和点赞数、写 Outbox | 更新热度、同步热榜、删除详情缓存 |
 | `comment_published` / `comment_deleted` | 修改评论、写 Outbox | 更新热度、同步热榜 |
 | 通知事件 | 点赞、评论、关注事务写通知 Outbox | 幂等写入 notifications 表 |
+
+### RabbitMQ Connection 与 Channel 隔离
+
+API 和 Worker 进程分别复用自己的 RabbitMQ TCP Connection，但不同并发职责不共享 AMQP Channel：
+
+```text
+API RabbitMQ Connection
+└── HTTP MQ 测试请求临时 Channel（请求结束立即关闭）
+
+Worker RabbitMQ Connection
+├── Outbox Publisher Channel
+├── Video Consumer Channel
+├── Like Consumer Channel
+├── Comment Consumer Channel
+└── Notification Consumer Channel
+```
+
+- `RabbitMQ` 只持有进程级 Connection，`AMQPChannel` 包装单一职责使用的 Channel。
+- Outbox Poller 在自己的 goroutine 内创建并长期持有 Publisher Channel。
+- 四个已启动的 Consumer 分别创建、消费和关闭自己的 Channel；单个 Channel 初始化失败只结束对应消费者，不会直接终止整个 Worker。
+- `/mq` 测试接口按 HTTP 请求临时创建 Channel，并通过 `defer` 在请求结束后关闭；正常业务写入通过 Outbox 投递，不长期占用 API Channel。
+- Docker 实机验证中，Worker 稳定保持 5 条长期 Channel（1 条 Publisher、4 条 Consumer），API 无长期 Channel；HTTP 发布请求完成后 Channel 数量恢复，未发现泄漏。
+
+当前隔离解决的是多个并发角色共享同一 Channel 的生命周期和故障影响问题；自动重连、Publisher Confirm、QoS/prefetch、死信队列仍属于后续可靠性增强。
 
 ### MQ 消费幂等
 
@@ -369,7 +393,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 │   └── src/                           # 框架、视频流、发布、消息、账号和详情页面
 ├── mobile-frontend/                   # Vue 3 手机端前端
 │   └── src/                           # 竖屏视频流、评论弹层、底部导航和业务页面
-├── picture/                           # 架构图和表结构图
+├── picture/                           # 早期架构与表结构资料（当前设计以本文为准）
 ├── test/                              # Postman 测试集合
 ├── docker-compose.yml                 # 服务编排
 ├── docker-compose.prod.yml            # 生产环境服务编排
@@ -442,11 +466,13 @@ npm run build
 ## 当前验证情况
 
 - 后端 `go test ./...` 全部通过。
+- 后端 `go test -race ./...` 并发竞态检查通过。
 - 后端 `go vet ./...` 静态检查通过。
 - 桌面端 `vue-tsc -b && vite build` 生产构建通过。
 - 手机端 `vue-tsc -b && vite build` 生产构建通过。
 - `docker compose config --quiet` 配置解析通过。
 - 本地 Docker 端到端流程已覆盖桌面端/手机端代理、WebSocket 连接、三条消息限额、会话接受、已读、互关、取消互关、拉黑和消息幂等。
+- RabbitMQ 实机验证确认 Worker 使用 1 个 Connection 和 5 条独立长期 Channel，API 的 HTTP 临时 Channel 会在请求结束后关闭。
 - 本地存储和阿里云私有 OSS 存储链路已验证。
 - OSS 文件上传、ObjectKey 发布、签名 URL 访问和异步删除链路已验证。
 
@@ -455,6 +481,7 @@ npm run build
 ## 后续优化方向
 
 - 增加 Outbox 失败消息告警、指数退避、死信队列和重放接口。
+- 增加 RabbitMQ 自动重连、Publisher Confirm 和 Consumer QoS/prefetch。
 - 增加 OSS 孤儿对象定时清理、客户端直传和 CDN。
 - 增加视频转码与多码率输出，统一处理 HEVC、MOV 等移动设备视频编码。
 - 为两套前端增加 Playwright 端到端测试和移动设备视口回归。
