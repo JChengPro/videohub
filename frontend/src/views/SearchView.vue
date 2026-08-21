@@ -9,11 +9,13 @@ import * as feedApi from '../api/feed'
 import { ApiError } from '../api/client'
 import type { Account, FeedVideoItem } from '../api/types'
 import { useAuthStore } from '../stores/auth'
+import { useSocialStore } from '../stores/social'
 import { useToastStore } from '../stores/toast'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const social = useSocialStore()
 const toast = useToastStore()
 const query = computed(() => typeof route.query.q === 'string' ? route.query.q.trim() : '')
 const myId = computed(() => auth.claims?.account_id ?? 0)
@@ -26,6 +28,7 @@ const state = reactive({
   videos: [] as FeedVideoItem[],
   hasMoreUsers: false,
   nextOffset: 0,
+  followBusy: {} as Record<number, boolean>,
 })
 let searchRequest = 0
 
@@ -88,6 +91,25 @@ async function startChat(user: Account) {
   await router.push(`/messages/chat/${user.id}`)
 }
 
+async function toggleFollow(user: Account) {
+  if (!auth.isLoggedIn) {
+    toast.info('登录后才能关注用户')
+    await router.push('/account')
+    return
+  }
+  if (state.followBusy[user.id]) return
+  state.followBusy[user.id] = true
+  try {
+    if (social.isFollowing(user.id)) await social.unfollow(user.id)
+    else await social.follow(user.id)
+    toast.success(social.isFollowing(user.id) ? `已关注 ${user.username}` : `已取消关注 ${user.username}`)
+  } catch (cause) {
+    toast.error(cause instanceof ApiError ? cause.message : String(cause))
+  } finally {
+    state.followBusy[user.id] = false
+  }
+}
+
 watch(query, search, { immediate: true })
 </script>
 
@@ -121,7 +143,16 @@ watch(query, search, { immediate: true })
             </RouterLink>
             <div class="user-actions">
               <RouterLink :to="`/u/${user.id}`">主页</RouterLink>
-              <button v-if="user.id !== myId" type="button" @click="startChat(user)">
+              <button
+                v-if="user.id !== myId"
+                class="follow-action"
+                type="button"
+                :disabled="state.followBusy[user.id]"
+                @click="toggleFollow(user)"
+              >
+                {{ state.followBusy[user.id] ? '处理中' : social.isFollowing(user.id) ? '已关注' : '关注' }}
+              </button>
+              <button v-if="user.id !== myId" class="message-action" type="button" @click="startChat(user)">
                 <AppIcon name="message" :size="14" />
                 私信
               </button>
@@ -171,7 +202,7 @@ watch(query, search, { immediate: true })
 .user-card:hover { border-color: var(--border-hover); transform: translateY(-1px); }
 .user-link { min-width: 0; flex: 1; display: flex; align-items: center; gap: 12px; }
 .user-link div { min-width: 0; }.user-link strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.user-link span { display: block; margin-top: 3px; color: var(--text-muted); font-size: 10px; }
-.user-actions { display: flex; align-items: center; gap: 6px; }.user-actions a,.user-actions button { min-height: 36px; padding: 0 12px; display: inline-flex; align-items: center; gap: 5px; border-radius: 10px; background: var(--surface-hover); color: var(--text-secondary); font-size: 12px; }.user-actions button { background: var(--accent); color: #fff; }.user-actions svg { width: 14px; stroke: currentColor; stroke-width: 1.8; }
+.user-actions { display: flex; align-items: center; gap: 6px; }.user-actions a,.user-actions button { min-height: 36px; padding: 0 12px; display: inline-flex; align-items: center; gap: 5px; border-radius: 10px; background: var(--surface-hover); color: var(--text-secondary); font-size: 12px; }.user-actions .follow-action { background: var(--accent); color: #fff; font-weight: 750; }.user-actions .follow-action:disabled { opacity: .58; }.user-actions .message-action { background: var(--surface-hover); color: var(--text); }.user-actions svg { width: 14px; stroke: currentColor; stroke-width: 1.8; }
 .video-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; }.video-card { overflow: hidden; border: 1px solid var(--border); border-radius: 15px; background: var(--surface-raised); }.cover-link { position: relative; aspect-ratio: 16/10; display: block; overflow: hidden; background: #09090a; }.cover-link img { width: 100%; height: 100%; object-fit: cover; transition: transform var(--duration) ease; }.cover-link:hover img { transform: scale(1.025); }.cover-link > span { position: absolute; right: 8px; bottom: 8px; padding: 3px 7px; border-radius: 999px; background: rgba(0,0,0,.7); font-size: 9px; }
 .video-copy { padding: 11px; }.video-copy > a strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }.video-copy .author { margin-top: 4px; display: block; color: var(--text-secondary); font-size: 11px; }.video-copy > div { margin-top: 8px; display: flex; gap: 12px; color: var(--text-muted); font-size: 10px; }
 .inline-empty { padding: 30px 15px; border: 1px dashed var(--border); border-radius: 14px; color: var(--text-muted); font-size: 12px; text-align: center; }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { getAvatarVersion, setAvatarVersion } from '../utils/avatarVersion'
 
 const props = withDefaults(defineProps<{ name: string; id?: number; size?: number; avatarUrl?: string; version?: number }>(), { size: 44 })
 
@@ -24,11 +25,10 @@ function hashString(input: string) {
 
 const initials = computed(() => props.name.trim().slice(0, 1).toUpperCase() || '?')
 const imageFailed = ref(false)
-const localVersion = ref(0)
 const imageSrc = computed(() => {
   if (props.avatarUrl) return props.avatarUrl
   if (!props.id) return ''
-  const version = props.version ?? localVersion.value
+  const version = Math.max(props.version ?? 0, getAvatarVersion(props.id))
   return `/api/account/avatar/${props.id}${version ? `?v=${version}` : ''}`
 })
 const background = computed(() => {
@@ -40,9 +40,10 @@ const background = computed(() => {
 watch(imageSrc, () => { imageFailed.value = false })
 
 function onAvatarUpdated(event: Event) {
-  const accountID = (event as CustomEvent<{ accountId?: number }>).detail?.accountId
+  const detail = (event as CustomEvent<{ accountId?: number; version?: number }>).detail
+  const accountID = detail?.accountId
   if (props.id && accountID === props.id) {
-    localVersion.value = Date.now()
+    setAvatarVersion(accountID, detail.version)
     imageFailed.value = false
   }
 }

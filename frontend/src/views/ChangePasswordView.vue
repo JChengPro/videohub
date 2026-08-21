@@ -1,18 +1,21 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import AppShell from '../components/AppShell.vue'
 import { ApiError } from '../api/client'
 import * as accountApi from '../api/account'
 import { useToastStore } from '../stores/toast'
+import { useAuthStore } from '../stores/auth'
 import { validatePassword } from '../utils/accountValidation'
 
 const router = useRouter()
 const toast = useToastStore()
+const auth = useAuthStore()
 
 const busy = ref(false)
 const form = reactive({ oldPassword: '', newPassword: '' })
+const accountName = computed(() => auth.claims?.account_name ?? '')
 
 async function submit() {
   if (busy.value) return
@@ -35,6 +38,7 @@ async function submit() {
   busy.value = true
   try {
     await accountApi.changePassword(oldPassword, newPassword)
+    auth.clearToken()
     toast.success('密码已修改，请重新登录')
     await router.push('/account')
   } catch (e) {
@@ -64,7 +68,7 @@ async function submit() {
           <div>
             <span class="form-kicker">修改密码</span>
             <h2>验证当前密码</h2>
-            <p>当前登录账号验证通过后即可设置新密码</p>
+            <p>正在验证当前登录账号 <strong>@{{ accountName }}</strong></p>
           </div>
 
           <form @submit.prevent="submit">
@@ -73,7 +77,7 @@ async function submit() {
             <button type="submit" :disabled="busy">{{ busy ? '正在修改...' : '确认修改密码' }}</button>
           </form>
 
-          <button class="back-login" type="button" @click="router.push('/account')">返回登录</button>
+          <button class="back-login" type="button" @click="router.push('/settings')">返回账号设置</button>
         </div>
       </section>
     </div>
@@ -97,6 +101,7 @@ async function submit() {
 .security-form { width: 100%; }
 .security-form h2 { margin-top: 9px; font-size: 27px; letter-spacing: -.04em; }
 .security-form > div > p { margin-top: 7px; color: #777; font-size: 11px; }
+.security-form > div > p strong { color: #bbb; }
 .security-form form { margin-top: 30px; display: grid; gap: 17px; }
 .security-form label { margin: 0; }
 .security-form label span { display: block; margin-bottom: 8px; color: #bbb; font-size: 11px; font-weight: 600; }

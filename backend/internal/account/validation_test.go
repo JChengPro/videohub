@@ -8,12 +8,13 @@ func TestValidateAccountName(t *testing.T) {
 		accountName string
 		valid       bool
 	}{
-		{name: "letters numbers underscore", accountName: "jcheng_2026", valid: true},
-		{name: "mixed case", accountName: "VideoHubUser", valid: true},
+		{name: "six digits", accountName: "123456", valid: true},
+		{name: "twelve digits", accountName: "123456789012", valid: true},
 		{name: "chinese", accountName: "视频用户01", valid: false},
-		{name: "starts with number", accountName: "2026user", valid: false},
-		{name: "too short", accountName: "abc", valid: false},
-		{name: "symbol", accountName: "user-name", valid: false},
+		{name: "letters", accountName: "2026user", valid: false},
+		{name: "too short", accountName: "12345", valid: false},
+		{name: "too long", accountName: "1234567890123", valid: false},
+		{name: "symbol", accountName: "123-456", valid: false},
 	}
 
 	for _, tt := range tests {

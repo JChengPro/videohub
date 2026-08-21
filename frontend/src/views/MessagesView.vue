@@ -7,6 +7,7 @@ import * as notificationApi from '../api/notification'
 import type { Notification, NotificationType } from '../api/notification'
 import AppShell from '../components/AppShell.vue'
 import { useAuthStore } from '../stores/auth'
+import { useChatStore } from '../stores/chat'
 import { useNotificationStore } from '../stores/notification'
 import { useToastStore } from '../stores/toast'
 import type { RealtimeEvent } from '../stores/realtime'
@@ -14,6 +15,7 @@ import type { RealtimeEvent } from '../stores/realtime'
 type Filter = 'all' | NotificationType
 
 const auth = useAuthStore()
+const chatStore = useChatStore()
 const notificationStore = useNotificationStore()
 const router = useRouter()
 const toast = useToastStore()
@@ -172,8 +174,8 @@ onBeforeUnmount(() => {
       </header>
 
       <nav class="message-kinds">
-        <RouterLink class="active" to="/messages">互动通知</RouterLink>
-        <RouterLink to="/messages/chat">私信</RouterLink>
+        <RouterLink class="active" to="/messages">互动通知<i v-if="notificationStore.unread">{{ notificationStore.unread > 99 ? '99+' : notificationStore.unread }}</i></RouterLink>
+        <RouterLink to="/messages/chat">私信<i v-if="chatStore.unread">{{ chatStore.unread > 99 ? '99+' : chatStore.unread }}</i></RouterLink>
       </nav>
 
       <div v-if="!auth.isLoggedIn" class="empty-panel">
@@ -243,7 +245,7 @@ onBeforeUnmount(() => {
 .messages-header p { margin-top: 6px; color: var(--text-secondary); font-size: 12px; }
 .messages-header button { border: 1px solid var(--border); background: var(--surface-hover); font-size: 12px; }
 .filters { margin: 16px 0 10px; display: flex; gap: 6px; }
-.message-kinds { margin: 14px 0 0; display: flex; gap: 6px; }.message-kinds a { padding: 8px 14px; border-radius: 999px; color: var(--text-secondary); font-size: 12px; }.message-kinds a.active { background: #fff; color: #111; font-weight: 800; }
+.message-kinds { margin: 14px 0 0; display: flex; gap: 6px; }.message-kinds a { padding: 8px 14px; border-radius: 999px; display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 12px; }.message-kinds a.active { background: #fff; color: #111; font-weight: 800; }.message-kinds i { min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; display: grid; place-items: center; background: var(--accent); color: #fff; font-size: 8px; font-style: normal; }
 .filters button { padding: 8px 14px; border-radius: 999px; background: transparent; color: var(--text-secondary); font-size: 12px; }
 .filters button.active { background: #fff; color: #111; font-weight: 700; }
 .message-panel { overflow: hidden; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-panel); }

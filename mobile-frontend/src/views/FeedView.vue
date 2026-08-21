@@ -1,12 +1,32 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { api } from '../api'
+import type { Account } from '../api/types'
+import { useAuthStore } from '../stores/auth'
 import VideoFeed from '../components/VideoFeed.vue'
 import AppIcon from '../components/AppIcon.vue'
+import Avatar from '../components/Avatar.vue'
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 const mode = computed(() => route.path === '/following' ? 'following' : route.path === '/hot' ? 'hot' : 'latest')
+const followingUsers = ref<Account[]>([])
+
+async function loadFollowingUsers() {
+  if (mode.value !== 'following' || !auth.isLoggedIn) {
+    followingUsers.value = []
+    return
+  }
+  try {
+    followingUsers.value = (await api.following()).vloggers
+  } catch {
+    followingUsers.value = []
+  }
+}
+
+watch([mode, () => auth.isLoggedIn], () => { void loadFollowingUsers() }, { immediate: true })
 </script>
 
 <template>
@@ -17,6 +37,13 @@ const mode = computed(() => route.path === '/following' ? 'following' : route.pa
       <button type="button" :aria-current="mode === 'latest' ? 'page' : undefined" :class="{ active: mode === 'latest' }" @click="router.push('/')">推荐</button>
       <button type="button" :aria-current="mode === 'hot' ? 'page' : undefined" :class="{ active: mode === 'hot' }" @click="router.push('/hot')">热门</button>
     </nav>
+    <section v-if="mode === 'following' && auth.isLoggedIn" class="following-users" aria-label="我关注的用户">
+      <button v-for="user in followingUsers" :key="user.id" type="button" @click="router.push(`/user/${user.id}`)">
+        <Avatar :name="user.username" :id="user.id" :size="40" />
+        <span>{{ user.username }}</span>
+      </button>
+      <p v-if="followingUsers.length === 0">还没有关注用户</p>
+    </section>
     <VideoFeed :mode="mode" />
   </div>
 </template>
@@ -67,6 +94,12 @@ const mode = computed(() => route.path === '/following' ? 'following' : route.pa
   background: var(--mobile-accent);
   content: '';
 }
+
+.following-users { position: fixed; z-index: 49; top: calc(53px + env(safe-area-inset-top)); right: 0; left: 0; min-height: 66px; padding: 8px 12px; display: flex; align-items: flex-start; gap: 14px; overflow-x: auto; background: linear-gradient(to bottom, rgba(10,10,12,.88), rgba(10,10,12,.18)); scrollbar-width: none; }
+.following-users::-webkit-scrollbar { display: none; }
+.following-users button { flex: 0 0 52px; min-width: 52px; padding: 0; display: grid; justify-items: center; gap: 4px; color: rgba(255,255,255,.84); }
+.following-users button span { width: 52px; overflow: hidden; font-size: 9px; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.following-users p { width: 100%; padding: 15px 0; color: rgba(255,255,255,.55); font-size: 10px; text-align: center; }
 
 @media (min-width: 700px) {
   .search-entry { right: calc(50% - 203px); }

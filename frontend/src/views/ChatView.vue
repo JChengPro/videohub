@@ -10,11 +10,13 @@ import AppShell from '../components/AppShell.vue'
 import UserAvatar from '../components/UserAvatar.vue'
 import { useAuthStore } from '../stores/auth'
 import { useChatStore } from '../stores/chat'
+import { useNotificationStore } from '../stores/notification'
 import { useRealtimeStore, type RealtimeEvent } from '../stores/realtime'
 import { useToastStore } from '../stores/toast'
 
 const auth = useAuthStore()
 const chatStore = useChatStore()
+const notificationStore = useNotificationStore()
 const realtime = useRealtimeStore()
 const toast = useToastStore()
 const route = useRoute()
@@ -82,10 +84,6 @@ async function loadConversations() {
   try {
     const response = await messageApi.listConversations()
     state.conversations = response.conversations
-    const firstConversation = response.conversations[0]
-    if (!peerId.value && firstConversation) {
-      await router.replace(`/messages/chat/${firstConversation.peer_id}`)
-    }
   } catch (cause) {
     state.error = cause instanceof Error ? cause.message : String(cause)
   } finally {
@@ -136,7 +134,7 @@ async function loadMessages(reset: boolean) {
 
 async function markCurrentRead() {
   const conversation = activeConversation.value
-  if (!conversation) return
+  if (!conversation || document.visibilityState !== 'visible' || !document.hasFocus()) return
   const lastMessage = state.messages[state.messages.length - 1]
   try {
     await messageApi.markRead(conversation.id, lastMessage?.id ?? 0)
@@ -145,6 +143,10 @@ async function markCurrentRead() {
   } catch {
     // 已读失败不影响继续浏览。
   }
+}
+
+function markVisibleConversationRead() {
+  if (activeConversation.value?.unread_count) void markCurrentRead()
 }
 
 async function send() {
@@ -159,7 +161,13 @@ async function send() {
   try {
     let response: SendMessageResponse
     if (realtime.connected) {
-      response = await realtime.send<SendMessageResponse>('chat.send', request)
+      try {
+        response = await realtime.send<SendMessageResponse>('chat.send', request)
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : String(cause)
+        if (!message.startsWith('实时')) throw cause
+        response = await messageApi.sendMessage(request.receiver_id, request.client_message_id, request.content)
+      }
     } else {
       response = await messageApi.sendMessage(request.receiver_id, request.client_message_id, request.content)
     }
@@ -263,6 +271,8 @@ onMounted(async () => {
     return
   }
   window.addEventListener('videohub:realtime', onRealtime)
+  window.addEventListener('focus', markVisibleConversationRead)
+  document.addEventListener('visibilitychange', markVisibleConversationRead)
   await loadConversations()
   await loadPeer()
   await loadMessages(true)
@@ -271,6 +281,8 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   chatStore.setActivePeer(0)
   window.removeEventListener('videohub:realtime', onRealtime)
+  window.removeEventListener('focus', markVisibleConversationRead)
+  document.removeEventListener('visibilitychange', markVisibleConversationRead)
 })
 </script>
 
@@ -283,8 +295,8 @@ onBeforeUnmount(() => {
           <h1>私信</h1>
         </div>
         <nav>
-          <RouterLink to="/messages">互动通知</RouterLink>
-          <RouterLink class="active" to="/messages/chat">私信</RouterLink>
+          <RouterLink to="/messages">互动通知<i v-if="notificationStore.unread" class="tab-badge">{{ notificationStore.unread > 99 ? '99+' : notificationStore.unread }}</i></RouterLink>
+          <RouterLink class="active" to="/messages/chat">私信<i v-if="chatStore.unread" class="tab-badge">{{ chatStore.unread > 99 ? '99+' : chatStore.unread }}</i></RouterLink>
         </nav>
       </header>
 
@@ -299,12 +311,14 @@ onBeforeUnmount(() => {
             :class="{ active: item.peer_id === peerId }"
             @click="router.push(`/messages/chat/${item.peer_id}`)"
           >
-            <UserAvatar :username="item.peer_username" :id="item.peer_id" :size="42" />
+            <span class="conversation-avatar">
+              <UserAvatar :username="item.peer_username" :id="item.peer_id" :size="42" />
+              <i v-if="item.unread_count">{{ item.unread_count > 99 ? '99+' : item.unread_count }}</i>
+            </span>
             <span>
               <strong>{{ item.peer_username }}</strong>
               <small>{{ item.last_message_content || '开始聊天' }}</small>
             </span>
-            <i v-if="item.unread_count">{{ item.unread_count > 99 ? '99+' : item.unread_count }}</i>
           </button>
         </aside>
 
@@ -374,9 +388,9 @@ onBeforeUnmount(() => {
 .chat-heading { margin-bottom: 14px; padding: 22px 26px; border: 1px solid var(--border); border-radius: 14px; display: flex; align-items: center; justify-content: space-between; background: var(--surface-panel); }
 .chat-heading span { color: var(--accent-cyan); font-size: 10px; font-weight: 900; letter-spacing: .2em; }
 .chat-heading h1 { margin-top: 5px; font-size: 28px; }
-.chat-heading nav { display: flex; gap: 6px; }.chat-heading nav a { padding: 8px 13px; border-radius: 999px; color: var(--text-secondary); font-size: 12px; }.chat-heading nav a.active { background: #fff; color: #111; font-weight: 800; }
+.chat-heading nav { display: flex; gap: 6px; }.chat-heading nav a { position: relative; padding: 8px 13px; border-radius: 999px; display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 12px; }.chat-heading nav a.active { background: #fff; color: #111; font-weight: 800; }.tab-badge { min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; display: grid; place-items: center; background: var(--accent); color: #fff; font-size: 8px; font-style: normal; }
 .chat-layout { min-height: 610px; border: 1px solid var(--border); border-radius: 14px; display: grid; grid-template-columns: 300px minmax(0,1fr); overflow: hidden; background: var(--surface-panel); }
-.conversation-panel { border-right: 1px solid var(--border); overflow-y: auto; }.conversation-panel > p { padding: 24px; color: var(--text-secondary); font-size: 12px; }.conversation-panel > button { width: 100%; padding: 14px; border-radius: 0; display: grid; grid-template-columns: 42px minmax(0,1fr) auto; align-items: center; gap: 10px; background: transparent; text-align: left; }.conversation-panel > button.active,.conversation-panel > button:hover { background: var(--surface-raised); }.conversation-panel span { min-width: 0; display: grid; gap: 4px; }.conversation-panel strong,.conversation-panel small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.conversation-panel strong { font-size: 12px; }.conversation-panel small { color: var(--text-muted); font-size: 10px; }.conversation-panel i { min-width: 19px; height: 19px; padding: 0 5px; border-radius: 10px; display: grid; place-items: center; background: var(--accent); color: #fff; font-size: 9px; font-style: normal; }
+.conversation-panel { border-right: 1px solid var(--border); overflow-y: auto; }.conversation-panel > p { padding: 24px; color: var(--text-secondary); font-size: 12px; }.conversation-panel > button { width: 100%; padding: 14px; border-radius: 0; display: grid; grid-template-columns: 42px minmax(0,1fr); align-items: center; gap: 10px; background: transparent; text-align: left; }.conversation-panel > button.active,.conversation-panel > button:hover { background: var(--surface-raised); }.conversation-panel > button > span:not(.conversation-avatar) { min-width: 0; display: grid; gap: 4px; }.conversation-panel strong,.conversation-panel small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.conversation-panel strong { font-size: 12px; }.conversation-panel small { color: var(--text-muted); font-size: 10px; }.conversation-avatar { position: relative; width: 42px; height: 42px; }.conversation-avatar i { position: absolute; top: -6px; right: -7px; min-width: 18px; height: 18px; padding: 0 4px; border: 2px solid #111113; border-radius: 10px; display: grid; place-items: center; background: var(--accent); color: #fff; font-size: 8px; font-style: normal; }
 .dialog-panel { min-width: 0; display: grid; grid-template-rows: auto minmax(0,1fr) auto; }.dialog-header { min-height: 70px; padding: 13px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 12px; }.dialog-header > div:first-child { display: grid; gap: 5px; }.dialog-header strong { font-size: 14px; }.dialog-header small { color: var(--text-muted); font-size: 10px; }.dialog-actions { display: flex; gap: 5px; }.dialog-actions button { padding: 7px 10px; background: var(--surface-raised); color: var(--text-secondary); font-size: 10px; }
 .message-history { padding: 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }.message-history > button { align-self: center; background: transparent; color: var(--text-muted); font-size: 10px; }.message-history > p { margin: auto; color: var(--text-muted); font-size: 12px; }.message-history article { max-width: 72%; align-self: flex-start; display: grid; gap: 4px; }.message-history article.mine { align-self: flex-end; justify-items: end; }.message-history article span { padding: 10px 13px; border-radius: 13px 13px 13px 3px; background: var(--surface-strong); color: #eee; font-size: 13px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }.message-history article.mine span { border-radius: 13px 13px 3px 13px; background: var(--accent); color: #fff; }.message-history article small { color: var(--text-muted); font-size: 9px; }
 .composer { padding: 12px; border-top: 1px solid var(--border); display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 9px; }.composer textarea { min-height: 52px; max-height: 130px; padding: 11px 13px; border: 1px solid var(--border); border-radius: 11px; resize: vertical; background: var(--surface-raised); color: #eee; }.composer button { min-width: 74px; background: var(--accent); color: #fff; font-weight: 800; }.dialog-empty { display: grid; place-items: center; color: var(--text-muted); font-size: 12px; }

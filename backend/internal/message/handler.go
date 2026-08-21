@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/net/websocket"
@@ -264,7 +265,13 @@ func (h *Handler) handleIncoming(
 			event := websocketError(incoming.RequestID, err)
 			return &event
 		}
-		h.publishSentMessage(ctx, response)
+		// 消息已经持久化，先返回 ACK；跨实例实时通知属于可补拉的旁路，
+		// 不应因 Redis 短暂变慢而拖到客户端请求超时。
+		go func() {
+			publishCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			h.publishSentMessage(publishCtx, response)
+		}()
 		event := realtime.NewEvent("chat.message_ack", response)
 		event.RequestID = incoming.RequestID
 		return &event

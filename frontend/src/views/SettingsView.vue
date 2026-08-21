@@ -12,6 +12,7 @@ import { useAuthStore } from '../stores/auth'
 import { useToastStore } from '../stores/toast'
 import { useDialogStore } from '../stores/dialog'
 import { validateUsername } from '../utils/accountValidation'
+import { announceAvatarUpdated } from '../utils/avatarVersion'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -87,8 +88,7 @@ async function saveAvatar() {
   busy.value = true
   try {
     await accountApi.uploadAvatar(avatarFile.value)
-    avatarVersion.value = Date.now()
-    window.dispatchEvent(new CustomEvent('videohub:avatar-updated', { detail: { accountId: me.value.id } }))
+    avatarVersion.value = announceAvatarUpdated(me.value.id)
     clearAvatarSelection()
     toast.success('头像已更新')
   } catch (e) {
@@ -183,7 +183,7 @@ onUnmounted(clearAvatarSelection)
       <div v-else class="settings-layout">
         <aside class="settings-side">
           <div class="account-summary">
-            <UserAvatar :username="me.username" :id="me.id" :size="58" :avatar-url="avatarPreview || undefined" :version="avatarVersion" />
+            <UserAvatar :username="me.username" :id="me.id" :size="58" :version="avatarVersion" />
             <div><strong>{{ me.username }}</strong><span>@{{ me.accountName || 'loading' }}</span></div>
           </div>
           <nav aria-label="设置分类">

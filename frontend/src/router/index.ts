@@ -12,6 +12,7 @@ import UserProfileView from '../views/UserProfileView.vue'
 import MessagesView from '../views/MessagesView.vue'
 import ChatView from '../views/ChatView.vue'
 import SearchView from '../views/SearchView.vue'
+import { useAuthStore } from '../stores/auth'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -27,10 +28,20 @@ const router = createRouter({
     { path: '/video/:id', name: 'video-detail', component: VideoDetailView, props: true },
     { path: '/account', name: 'account', component: AccountView },
     { path: '/account/register', name: 'account-register', component: RegisterView },
-    { path: '/account/change-password', name: 'account-change-password', component: ChangePasswordView },
+    { path: '/account/change-password', name: 'account-change-password', component: ChangePasswordView, meta: { requiresAuth: true } },
     { path: '/settings', name: 'settings', component: SettingsView },
     { path: '/u/:id', name: 'user-profile', component: UserProfileView, props: true },
   ],
+})
+
+router.beforeEach((to) => {
+  if (!to.meta.requiresAuth) return true
+
+  const auth = useAuthStore()
+  auth.syncFromStorage()
+  if (auth.isLoggedIn) return true
+
+  return { name: 'account', query: { reason: 'login-required' } }
 })
 
 export default router

@@ -175,6 +175,7 @@ func (c *connection) sendEvent(event Event) {
 func (c *connection) writeLoop() {
 	ticker := time.NewTicker(heartbeatEvery)
 	defer ticker.Stop()
+	defer c.socket.Close()
 
 	for {
 		select {
@@ -183,13 +184,15 @@ func (c *connection) writeLoop() {
 				return
 			}
 			_ = c.socket.SetWriteDeadline(time.Now().Add(writeTimeout))
-			if err := websocket.Message.Send(c.socket, payload); err != nil {
+			// JSON 必须使用文本帧发送。[]byte 会被 x/net/websocket 编码成
+			// BinaryFrame，浏览器端收到 Blob 后无法直接按 JSON 文本解析。
+			if err := websocket.Message.Send(c.socket, string(payload)); err != nil {
 				return
 			}
 		case <-ticker.C:
 			payload, _ := json.Marshal(NewEvent("ping", nil))
 			_ = c.socket.SetWriteDeadline(time.Now().Add(writeTimeout))
-			if err := websocket.Message.Send(c.socket, payload); err != nil {
+			if err := websocket.Message.Send(c.socket, string(payload)); err != nil {
 				return
 			}
 		}

@@ -246,7 +246,7 @@ type Storage interface {
 
 ### JWT 鉴权与 Redis 限流
 
-- 登录身份与公开昵称分离：`account_name` 是忽略大小写的唯一登录账号，`username` 是支持中文且可修改的公开昵称。
+- 登录身份与公开昵称分离：新注册的 `account_name` 必须为 6–12 位唯一数字账号，`username` 是支持中文且可修改的公开昵称；历史字母账号继续兼容登录。
 - 老数据库启动时会自动补齐 `account_name`；迁移账号暂时保留旧昵称登录兼容，新注册账号只使用 `account_name + password` 登录。
 - 用户可以在网页端和手机端账号设置中上传 JPG、PNG 或 WebP 头像（最大 5MB）；未上传头像时由后端生成稳定的彩色 SVG 默认头像。
 - JWTAuth 用于必须登录的发布、点赞、评论和关注接口。

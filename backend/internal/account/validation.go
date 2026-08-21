@@ -9,6 +9,8 @@ import (
 )
 
 const (
+	MinAccountNameLength = 6
+	MaxAccountNameLength = 12
 	MinUsernameLength = 3
 	MaxUsernameLength = 24
 	MinPasswordLength = 8
@@ -16,15 +18,15 @@ const (
 )
 
 var usernamePattern = regexp.MustCompile(`^[\p{Han}A-Za-z0-9_]+$`)
-var accountNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
+var accountNamePattern = regexp.MustCompile(`^[0-9]+$`)
 
 func ValidateAccountName(accountName string) error {
 	length := utf8.RuneCountInString(accountName)
-	if length < 4 || length > 24 {
-		return errors.New("账号名长度必须为 4-24 个字符")
+	if length < MinAccountNameLength || length > MaxAccountNameLength {
+		return errors.New("账号名必须为 6-12 位纯数字")
 	}
 	if !accountNamePattern.MatchString(accountName) {
-		return errors.New("账号名必须以字母开头，且只能包含字母、数字和下划线")
+		return errors.New("账号名必须为 6-12 位纯数字")
 	}
 	return nil
 }

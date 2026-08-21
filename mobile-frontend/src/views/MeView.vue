@@ -9,6 +9,7 @@ import { useDialogStore } from '../stores/dialog'
 import Avatar from '../components/Avatar.vue'
 import AppIcon from '../components/AppIcon.vue'
 import { ACCOUNT_NAME_MAX_LENGTH, accountNameError, PASSWORD_MAX_LENGTH, passwordError, USERNAME_MAX_LENGTH, usernameError } from '../utils/accountValidation'
+import { announceAvatarUpdated } from '../utils/avatarVersion'
 
 const auth = useAuthStore()
 const toast = useToastStore()
@@ -228,8 +229,7 @@ async function uploadAvatar(event: Event) {
   busy.value = true
   try {
     await api.uploadAvatar(file)
-    avatarVersion.value = Date.now()
-    window.dispatchEvent(new CustomEvent('videohub:avatar-updated', { detail: { accountId: auth.claims?.account_id } }))
+    avatarVersion.value = announceAvatarUpdated(auth.claims?.account_id)
     toast.success('头像已更新')
   } catch (cause) {
     toast.error(cause instanceof Error ? cause.message : String(cause))
@@ -280,22 +280,22 @@ watch(
             <p>{{ mode === 'login' ? '登录后，记录喜欢并与创作者互动' : '创建账号，开始分享你的作品' }}</p>
           </header>
           <label>
-            <span>账号名</span>
-            <input v-model="form.accountName" autocomplete="username" :maxlength="ACCOUNT_NAME_MAX_LENGTH" placeholder="例如 jcheng2026" />
+            <span>{{ mode === 'register' ? '数字账号名' : '账号名' }}</span>
+            <input v-model="form.accountName" autocomplete="username" :inputmode="mode === 'register' ? 'numeric' : 'text'" :pattern="mode === 'register' ? '[0-9]*' : undefined" :maxlength="mode === 'register' ? ACCOUNT_NAME_MAX_LENGTH : 24" />
           </label>
           <label v-if="mode === 'register'">
             <span>昵称</span>
-            <input v-model="form.username" :maxlength="USERNAME_MAX_LENGTH" placeholder="支持中文，例如 成都小王" />
+            <input v-model="form.username" :maxlength="USERNAME_MAX_LENGTH" />
           </label>
           <label>
             <span>密码</span>
-            <input v-model="form.password" type="password" :maxlength="PASSWORD_MAX_LENGTH" :autocomplete="mode === 'login' ? 'current-password' : 'new-password'" placeholder="请输入密码" />
+            <input v-model="form.password" type="password" :maxlength="PASSWORD_MAX_LENGTH" :autocomplete="mode === 'login' ? 'current-password' : 'new-password'" />
           </label>
           <label v-if="mode === 'register'">
             <span>确认密码</span>
-            <input v-model="form.confirm" type="password" :maxlength="PASSWORD_MAX_LENGTH" autocomplete="new-password" placeholder="请再次输入密码" />
+            <input v-model="form.confirm" type="password" :maxlength="PASSWORD_MAX_LENGTH" autocomplete="new-password" />
           </label>
-          <p v-if="mode === 'register'" class="auth-rule">账号名为 4-24 位字母、数字或下划线并以字母开头；昵称支持中文；密码需同时包含字母和数字。</p>
+          <p v-if="mode === 'register'" class="auth-rule">数字账号名为 6–12 位；昵称支持中文；密码需包含字母和数字。</p>
           <button class="auth-submit" type="submit" :disabled="busy">{{ busy ? '请稍候...' : mode === 'login' ? '登录' : '注册' }}</button>
           <p class="auth-agreement">继续操作即表示你同意 VideoHub 用户协议与隐私政策</p>
         </form>
@@ -354,7 +354,7 @@ watch(
           </div>
           <p class="settings-label">账号安全</p>
           <div class="setting-block">
-            <div class="setting-copy"><b>修改密码</b><p>修改成功后需要重新登录。</p></div>
+            <div class="setting-copy"><b>修改密码</b><p>验证当前登录账号 @{{ accountName }} 的原密码，修改成功后需要重新登录。</p></div>
             <input v-model="settings.oldPassword" type="password" :maxlength="PASSWORD_MAX_LENGTH" autocomplete="current-password" aria-label="原密码" placeholder="原密码" />
             <input v-model="settings.newPassword" type="password" :maxlength="PASSWORD_MAX_LENGTH" autocomplete="new-password" aria-label="新密码" placeholder="新密码：8-64 位，包含字母和数字" />
             <button type="button" :disabled="busy" @click="changePassword">修改密码</button>

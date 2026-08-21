@@ -7,11 +7,13 @@ import type { Notification } from '../api/types'
 import AppIcon from '../components/AppIcon.vue'
 import Avatar from '../components/Avatar.vue'
 import { useAuthStore } from '../stores/auth'
+import { useChatStore } from '../stores/chat'
 import { useNotificationStore } from '../stores/notification'
 import { useToastStore } from '../stores/toast'
 import type { RealtimeEvent } from '../stores/realtime'
 
 const auth = useAuthStore()
+const chatStore = useChatStore()
 const notifications = useNotificationStore()
 const toast = useToastStore()
 const router = useRouter()
@@ -150,8 +152,8 @@ onBeforeUnmount(() => window.removeEventListener('videohub:realtime', onRealtime
     </header>
 
     <nav class="message-tabs">
-      <button class="active" type="button">互动通知</button>
-      <button type="button" @click="router.push('/chat')">私信</button>
+      <button class="active" type="button">互动通知<i v-if="notifications.unread">{{ notifications.unread > 99 ? '99+' : notifications.unread }}</i></button>
+      <button type="button" @click="router.push('/chat')">私信<i v-if="chatStore.unread">{{ chatStore.unread > 99 ? '99+' : chatStore.unread }}</i></button>
     </nav>
 
     <section v-if="!auth.isLoggedIn" class="empty">
@@ -207,7 +209,7 @@ onBeforeUnmount(() => window.removeEventListener('videohub:realtime', onRealtime
 }
 
 .message-tabs { padding: 8px 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
-.message-tabs button { min-height: 38px; border-radius: 999px; background: var(--mobile-surface-raised); color: var(--mobile-text-muted); font-size: 11px; }
+.message-tabs button { position: relative; min-height: 38px; border-radius: 999px; background: var(--mobile-surface-raised); color: var(--mobile-text-muted); font-size: 11px; }.message-tabs button i { position: absolute; top: 4px; right: calc(50% - 32px); min-width: 16px; height: 16px; padding: 0 3px; border-radius: 8px; display: grid; place-items: center; background: var(--mobile-accent); color: #fff; font-size: 7px; font-style: normal; }
 .message-tabs button.active { background: var(--mobile-text); color: var(--mobile-bg); font-weight: 800; }
 
 .message-list {

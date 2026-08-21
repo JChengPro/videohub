@@ -168,10 +168,6 @@ async function goRegister() {
   await router.push('/account/register')
 }
 
-async function goChangePassword() {
-  await router.push('/account/change-password')
-}
-
 async function goSettings() {
   await router.push('/settings')
 }
@@ -279,7 +275,7 @@ watch(
 
         <div class="login-links">
           <button type="button" :disabled="busy" @click="goRegister">注册新账号</button>
-          <button type="button" :disabled="busy" @click="goChangePassword">修改密码</button>
+          <span>忘记密码需由管理员核验账号后重置</span>
         </div>
 
         <div class="login-benefits">
@@ -579,7 +575,9 @@ watch(
 .login-links {
   margin-top: 14px;
   display: flex;
+  align-items: center;
   justify-content: space-between;
+  gap: 16px;
 }
 
 .login-links button {
@@ -591,6 +589,12 @@ watch(
 
 .login-links button:hover {
   color: #fff;
+}
+
+.login-links span {
+  color: #666;
+  font-size: 10px;
+  text-align: right;
 }
 
 .login-benefits {

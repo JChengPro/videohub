@@ -125,24 +125,24 @@ async function checkAccountName() {
 
           <form class="auth-form" @submit.prevent="submit">
             <label>
-              <span>账号名</span>
+              <span>数字账号名</span>
               <div class="input-shell">
                 <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
-                <input v-model.trim="form.accountName" autocomplete="username" maxlength="24" placeholder="例如 jcheng2026" @input="accountNameAvailable = null" @blur="checkAccountName" />
+                <input v-model.trim="form.accountName" autocomplete="username" inputmode="numeric" pattern="[0-9]*" maxlength="12" @input="accountNameAvailable = null" @blur="checkAccountName" />
               </div>
               <ul class="rule-list">
                 <li v-for="rule in currentAccountNameRules" :key="rule.text" :class="{ valid: rule.valid }">{{ rule.text }}</li>
               </ul>
-              <p v-if="accountNameChecking" class="availability-tip">正在检查账号名…</p>
-              <p v-else-if="accountNameAvailable === true" class="availability-tip available">账号名可以使用</p>
-              <p v-else-if="accountNameAvailable === false" class="availability-tip unavailable">账号名已被使用，请更换一个</p>
+              <p v-if="accountNameChecking" class="availability-tip">正在检查数字账号名…</p>
+              <p v-else-if="accountNameAvailable === true" class="availability-tip available">数字账号名可以使用</p>
+              <p v-else-if="accountNameAvailable === false" class="availability-tip unavailable">数字账号名已被使用，请更换一个</p>
             </label>
 
             <label>
               <span>公开昵称</span>
               <div class="input-shell">
                 <svg viewBox="0 0 24 24" fill="none"><path d="M4 19h16M7 16l7-7 3 3-7 7H7v-3Z"/></svg>
-                <input v-model.trim="form.username" maxlength="24" placeholder="支持中文，例如 成都小王" />
+                <input v-model.trim="form.username" maxlength="24" />
               </div>
               <ul class="rule-list">
                 <li v-for="rule in currentUsernameRules" :key="rule.text" :class="{ valid: rule.valid }">{{ rule.text }}</li>
@@ -153,7 +153,7 @@ async function checkAccountName() {
               <span>密码</span>
               <div class="input-shell">
                 <svg viewBox="0 0 24 24" fill="none"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
-                <input v-model="form.password" :type="showPassword ? 'text' : 'password'" autocomplete="new-password" placeholder="设置登录密码" />
+                <input v-model="form.password" :type="showPassword ? 'text' : 'password'" autocomplete="new-password" />
                 <button type="button" class="show-password" @click="showPassword = !showPassword">{{ showPassword ? '隐藏' : '显示' }}</button>
               </div>
               <ul class="rule-list">
@@ -165,7 +165,7 @@ async function checkAccountName() {
               <span>确认密码</span>
               <div class="input-shell">
                 <svg viewBox="0 0 24 24" fill="none"><path d="m5 12 4 4L19 6"/></svg>
-                <input v-model="form.confirmPassword" :type="showPassword ? 'text' : 'password'" autocomplete="new-password" placeholder="再次输入密码" @keydown.enter="submit" />
+                <input v-model="form.confirmPassword" :type="showPassword ? 'text' : 'password'" autocomplete="new-password" @keydown.enter="submit" />
               </div>
               <p v-if="form.confirmPassword" class="match-tip" :class="{ valid: passwordsMatch }">
                 {{ passwordsMatch ? '两次密码输入一致' : '两次密码输入不一致' }}
@@ -217,7 +217,7 @@ async function checkAccountName() {
 .input-shell svg { position: absolute; top: 50%; left: 13px; width: 18px; transform: translateY(-50%); stroke: #666; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .input-shell input { height: 46px; padding: 0 58px 0 42px; border-radius: 7px; background: var(--surface-raised); }
 .show-password { position: absolute; top: 50%; right: 7px; padding: 6px 8px; transform: translateY(-50%); background: transparent; color: #777; font-size: 11px; }
-.rule-list { margin-top: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; list-style: none; color: #777; font-size: 10px; }
+.rule-list { margin-top: 8px; display: grid; grid-template-columns: 1fr; gap: 4px; list-style: none; color: #777; font-size: 10px; }
 .rule-list li::before { content: '○'; margin-right: 5px; }
 .rule-list li.valid { color: #9a9a9a; }
 .rule-list li.valid::before { content: '✓'; color: var(--ok); }

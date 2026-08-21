@@ -33,6 +33,13 @@ function requestId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
+async function websocketMessageText(data: unknown) {
+  if (typeof data === 'string') return data
+  if (data instanceof Blob) return data.text()
+  if (data instanceof ArrayBuffer) return new TextDecoder().decode(data)
+  return String(data)
+}
+
 export const useRealtimeStore = defineStore('realtime', () => {
   const auth = useAuthStore()
   const chat = useChatStore()
@@ -61,10 +68,11 @@ export const useRealtimeStore = defineStore('realtime', () => {
         connecting.value = false
         reconnectAttempt = 0
       }
-      next.onmessage = (message) => {
+      next.onmessage = async (message) => {
         let event: RealtimeEvent
-        try { event = JSON.parse(String(message.data)) as RealtimeEvent }
+        try { event = JSON.parse(await websocketMessageText(message.data)) as RealtimeEvent }
         catch { return }
+        if (socket !== next) return
         if (event.type === 'ping') {
           next.send(JSON.stringify({ type: 'pong', request_id: event.request_id }))
           return

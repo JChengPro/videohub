@@ -8,11 +8,13 @@ import AppIcon from '../components/AppIcon.vue'
 import Avatar from '../components/Avatar.vue'
 import { useAuthStore } from '../stores/auth'
 import { useChatStore } from '../stores/chat'
+import { useNotificationStore } from '../stores/notification'
 import { useRealtimeStore, type RealtimeEvent } from '../stores/realtime'
 import { useToastStore } from '../stores/toast'
 
 const auth = useAuthStore()
 const chatStore = useChatStore()
+const notifications = useNotificationStore()
 const realtime = useRealtimeStore()
 const toast = useToastStore()
 const route = useRoute()
@@ -106,7 +108,7 @@ async function scrollBottom() {
 
 async function markRead() {
   const item = conversation.value
-  if (!item) return
+  if (!item || document.visibilityState !== 'visible' || !document.hasFocus()) return
   try {
     await api.markChatRead(item.id, messages.value[messages.value.length - 1]?.id ?? 0)
     item.unread_count = 0
@@ -116,15 +118,28 @@ async function markRead() {
   }
 }
 
+function markVisibleConversationRead() {
+  if (conversation.value?.unread_count) void markRead()
+}
+
 async function send() {
   const text = content.value.trim()
   if (!text || !peerId.value || sending.value) return
   sending.value = true
   const request = { receiver_id: peerId.value, client_message_id: clientMessageId(), content: text }
   try {
-    const response = realtime.connected
-      ? await realtime.send<SendMessageResponse>('chat.send', request)
-      : await api.sendChatMessage(request.receiver_id, request.client_message_id, request.content)
+    let response: SendMessageResponse
+    if (realtime.connected) {
+      try {
+        response = await realtime.send<SendMessageResponse>('chat.send', request)
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : String(cause)
+        if (!message.startsWith('实时')) throw cause
+        response = await api.sendChatMessage(request.receiver_id, request.client_message_id, request.content)
+      }
+    } else {
+      response = await api.sendChatMessage(request.receiver_id, request.client_message_id, request.content)
+    }
     const map = new Map(messages.value.map((message) => [message.id, message]))
     map.set(response.message.id, response.message)
     messages.value = [...map.values()].sort((a, b) => a.id - b.id)
@@ -202,12 +217,18 @@ onMounted(async () => {
     return
   }
   window.addEventListener('videohub:realtime', onRealtime)
+  window.addEventListener('focus', markVisibleConversationRead)
+  document.addEventListener('visibilitychange', markVisibleConversationRead)
   await loadConversations()
   await loadPeer()
   await loadMessages(true)
 })
 
-onBeforeUnmount(() => window.removeEventListener('videohub:realtime', onRealtime))
+onBeforeUnmount(() => {
+  window.removeEventListener('videohub:realtime', onRealtime)
+  window.removeEventListener('focus', markVisibleConversationRead)
+  document.removeEventListener('visibilitychange', markVisibleConversationRead)
+})
 </script>
 
 <template>
@@ -228,8 +249,8 @@ onBeforeUnmount(() => window.removeEventListener('videohub:realtime', onRealtime
 
     <template v-if="!peerId">
       <nav class="message-tabs">
-        <button type="button" @click="router.push('/messages')">互动通知</button>
-        <button class="active" type="button">私信</button>
+        <button type="button" @click="router.push('/messages')">互动通知<i v-if="notifications.unread">{{ notifications.unread > 99 ? '99+' : notifications.unread }}</i></button>
+        <button class="active" type="button">私信<i v-if="chatStore.unread">{{ chatStore.unread > 99 ? '99+' : chatStore.unread }}</i></button>
       </nav>
       <section v-if="!conversations.length" class="empty">
         <AppIcon name="message" :size="38" />
@@ -238,9 +259,11 @@ onBeforeUnmount(() => window.removeEventListener('videohub:realtime', onRealtime
       </section>
       <section v-else class="conversation-list">
         <button v-for="item in conversations" :key="item.id" type="button" @click="router.push(`/chat/${item.peer_id}`)">
-          <Avatar :name="item.peer_username" :id="item.peer_id" :size="48" />
+          <span class="conversation-avatar">
+            <Avatar :name="item.peer_username" :id="item.peer_id" :size="48" />
+            <i v-if="item.unread_count">{{ item.unread_count > 99 ? '99+' : item.unread_count }}</i>
+          </span>
           <span><b>{{ item.peer_username }}</b><small>{{ item.last_message_content }}</small></span>
-          <i v-if="item.unread_count">{{ item.unread_count > 99 ? '99+' : item.unread_count }}</i>
         </button>
       </section>
     </template>
@@ -273,8 +296,8 @@ onBeforeUnmount(() => window.removeEventListener('videohub:realtime', onRealtime
 
 <style scoped>
 .chat-page { min-height: 100dvh; background: var(--mobile-surface); }.topbar { position: sticky; z-index: 20; top: 0; min-height: calc(54px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) 8px 0; display: grid; grid-template-columns: 52px 1fr 52px; align-items: center; border-bottom: 1px solid var(--mobile-border); background: rgba(20,20,23,.94); }.topbar button { min-height: 44px; display: grid; place-items: center; color: var(--mobile-text-secondary); font-size: 10px; }.topbar b { overflow: hidden; text-align: center; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
-.message-tabs { padding: 10px 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }.message-tabs button { min-height: 38px; border-radius: 999px; background: var(--mobile-surface-raised); color: var(--mobile-text-muted); font-size: 11px; }.message-tabs button.active { background: var(--mobile-text); color: var(--mobile-bg); font-weight: 800; }
-.conversation-list { padding: 4px 14px calc(80px + env(safe-area-inset-bottom)); }.conversation-list > button { width: 100%; min-height: 76px; padding: 12px 3px; border-bottom: 1px solid var(--mobile-border); display: grid; grid-template-columns: 48px minmax(0,1fr) auto; align-items: center; gap: 12px; text-align: left; }.conversation-list span { min-width: 0; display: grid; gap: 5px; }.conversation-list b,.conversation-list small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.conversation-list b { font-size: 13px; }.conversation-list small { color: var(--mobile-text-muted); font-size: 10px; }.conversation-list i { min-width: 19px; height: 19px; padding: 0 5px; border-radius: 10px; display: grid; place-items: center; background: var(--mobile-accent); color: #fff; font-size: 8px; font-style: normal; }
+.message-tabs { padding: 10px 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }.message-tabs button { position: relative; min-height: 38px; border-radius: 999px; background: var(--mobile-surface-raised); color: var(--mobile-text-muted); font-size: 11px; }.message-tabs button.active { background: var(--mobile-text); color: var(--mobile-bg); font-weight: 800; }.message-tabs button i { position: absolute; top: 4px; right: calc(50% - 32px); min-width: 16px; height: 16px; padding: 0 3px; border-radius: 8px; display: grid; place-items: center; background: var(--mobile-accent); color: #fff; font-size: 7px; font-style: normal; }
+.conversation-list { padding: 4px 14px calc(80px + env(safe-area-inset-bottom)); }.conversation-list > button { width: 100%; min-height: 76px; padding: 12px 3px; border-bottom: 1px solid var(--mobile-border); display: grid; grid-template-columns: 48px minmax(0,1fr); align-items: center; gap: 12px; text-align: left; }.conversation-list > button > span:not(.conversation-avatar) { min-width: 0; display: grid; gap: 5px; }.conversation-list b,.conversation-list small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.conversation-list b { font-size: 13px; }.conversation-list small { color: var(--mobile-text-muted); font-size: 10px; }.conversation-avatar { position: relative; width: 48px; height: 48px; }.conversation-avatar i { position: absolute; top: -5px; right: -7px; min-width: 18px; height: 18px; padding: 0 4px; border: 2px solid var(--mobile-surface); border-radius: 10px; display: grid; place-items: center; background: var(--mobile-accent); color: #fff; font-size: 7px; font-style: normal; }
 .policy { min-height: 45px; padding: 8px 13px; display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--mobile-surface-raised); color: var(--mobile-text-muted); font-size: 10px; }.policy div { display: flex; gap: 5px; }.policy button { padding: 7px 10px; border-radius: 999px; background: var(--mobile-surface-strong); color: var(--mobile-text-secondary); font-size: 10px; }
 .history { position: fixed; inset: calc(99px + env(safe-area-inset-top)) 0 calc(72px + env(safe-area-inset-bottom)); padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; }.history > button { align-self: center; color: var(--mobile-text-muted); font-size: 10px; }.history > p { margin: auto; color: var(--mobile-text-muted); font-size: 11px; }.history article { max-width: 80%; align-self: flex-start; display: grid; gap: 3px; }.history article.mine { align-self: flex-end; justify-items: end; }.history article span { padding: 9px 12px; border-radius: 14px 14px 14px 3px; background: var(--mobile-surface-strong); font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }.history article.mine span { border-radius: 14px 14px 3px 14px; background: var(--mobile-accent); color: #fff; }.history small { color: var(--mobile-text-muted); font-size: 8px; }
 .composer { position: fixed; z-index: 20; right: 0; bottom: 0; left: 0; min-height: calc(72px + env(safe-area-inset-bottom)); padding: 10px 10px env(safe-area-inset-bottom); border-top: 1px solid var(--mobile-border); display: grid; grid-template-columns: minmax(0,1fr) 62px; gap: 8px; background: rgba(20,20,23,.96); }.composer textarea { height: 48px; padding: 12px; border: 1px solid var(--mobile-border); border-radius: 12px; resize: none; background: var(--mobile-surface-raised); color: var(--mobile-text); }.composer button { border-radius: 12px; background: var(--mobile-accent); color: #fff; font-weight: 800; }

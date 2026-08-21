@@ -6,13 +6,17 @@ import type { Account, FeedVideo } from '../api/types'
 import AppIcon from '../components/AppIcon.vue'
 import Avatar from '../components/Avatar.vue'
 import { useAuthStore } from '../stores/auth'
+import { useToastStore } from '../stores/toast'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const toast = useToastStore()
 const input = ref(typeof route.query.q === 'string' ? route.query.q : '')
 const query = computed(() => typeof route.query.q === 'string' ? route.query.q.trim() : '')
 const state = reactive({ loading: false, error: '', users: [] as Account[], videos: [] as FeedVideo[] })
+const followingIds = ref(new Set<number>())
+const followBusy = ref(new Set<number>())
 let requestId = 0
 
 function matches(item: FeedVideo, keyword: string) {
@@ -32,10 +36,17 @@ async function load() {
   if (!keyword) return
   state.loading = true
   try {
-    const [users, feed] = await Promise.all([api.searchUsers(keyword), api.latest(0)])
+    const [users, feed, following] = await Promise.all([
+      api.searchUsers(keyword),
+      api.latest(0),
+      auth.isLoggedIn
+        ? api.following().catch(() => ({ vloggers: [] as Account[] }))
+        : Promise.resolve({ vloggers: [] as Account[] }),
+    ])
     if (current !== requestId) return
     state.users = users.users ?? []
     state.videos = feed.video_list.filter((item) => matches(item, keyword))
+    followingIds.value = new Set(following.vloggers.map((user) => user.id))
   } catch (cause) {
     if (current === requestId) state.error = cause instanceof Error ? cause.message : String(cause)
   } finally {
@@ -50,6 +61,32 @@ function submit() {
 
 function message(user: Account) {
   void router.push(auth.isLoggedIn ? `/chat/${user.id}` : '/me')
+}
+
+async function toggleFollow(user: Account) {
+  if (!auth.isLoggedIn) {
+    await router.push('/me')
+    return
+  }
+  if (followBusy.value.has(user.id)) return
+  followBusy.value = new Set(followBusy.value).add(user.id)
+  try {
+    const next = new Set(followingIds.value)
+    if (next.has(user.id)) {
+      await api.unfollow(user.id)
+      next.delete(user.id)
+    } else {
+      await api.follow(user.id)
+      next.add(user.id)
+    }
+    followingIds.value = next
+  } catch (cause) {
+    toast.error(cause instanceof Error ? cause.message : String(cause))
+  } finally {
+    const nextBusy = new Set(followBusy.value)
+    nextBusy.delete(user.id)
+    followBusy.value = nextBusy
+  }
 }
 
 watch(query, load, { immediate: true })
@@ -76,7 +113,10 @@ watch(query, load, { immediate: true })
           <button class="identity" type="button" @click="router.push(`/user/${user.id}`)">
             <Avatar :name="user.username" :id="user.id" :size="48" /><span><b>{{ user.username }}</b><small>@{{ user.account_name }}</small></span>
           </button>
-          <button v-if="user.id !== auth.claims?.account_id" class="message" type="button" @click="message(user)"><AppIcon name="message" :size="16" />私信</button>
+          <div v-if="user.id !== auth.claims?.account_id" class="user-actions">
+            <button class="follow" type="button" :disabled="followBusy.has(user.id)" @click="toggleFollow(user)">{{ followBusy.has(user.id) ? '处理中' : followingIds.has(user.id) ? '已关注' : '关注' }}</button>
+            <button class="message" type="button" @click="message(user)"><AppIcon name="message" :size="16" />私信</button>
+          </div>
         </article>
         <p v-if="!state.users.length" class="no-result">没有匹配的用户</p>
       </section>
@@ -106,7 +146,7 @@ input { min-width: 0; width: 100%; border: 0; outline: 0; background: transparen
 .result-block > header { margin-bottom: 10px; display: flex; align-items: end; justify-content: space-between; }.result-block header small { color: var(--mobile-accent); font-size: 7px; font-weight: 900; letter-spacing: .16em; }.result-block h2 { font-size: 17px; }.result-block header > span { min-width: 26px; height: 26px; display: grid; place-items: center; border-radius: 999px; background: var(--mobile-accent-dim); color: var(--mobile-accent); font-size: 10px; }
 .user-result { min-height: 70px; padding: 10px; display: flex; align-items: center; gap: 8px; border: 1px solid var(--mobile-border); border-radius: 16px; background: var(--mobile-surface-raised); }.user-result + .user-result { margin-top: 8px; }
 .identity { min-width: 0; flex: 1; display: flex; align-items: center; gap: 10px; text-align: left; }.identity > span { min-width: 0; }.identity b,.identity small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.identity b { font-size: 13px; }.identity small { margin-top: 3px; color: var(--mobile-text-muted); font-size: 9px; }
-.message { min-height: 38px; padding: 0 12px; display: flex; align-items: center; gap: 5px; border-radius: 999px; background: var(--mobile-accent); color: #fff; font-size: 10px; font-weight: 800; }
+.user-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 5px; }.user-actions button { min-height: 38px; padding: 0 11px; display: flex; align-items: center; gap: 5px; border-radius: 999px; font-size: 10px; font-weight: 800; }.follow { background: var(--mobile-accent); color: #fff; }.follow:disabled { opacity: .58; }.message { background: var(--mobile-surface-strong); color: var(--mobile-text); }
 .video-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }.video-grid button { overflow: hidden; border: 1px solid var(--mobile-border); border-radius: 14px; background: var(--mobile-surface-raised); text-align: left; }.video-grid img { width: 100%; aspect-ratio: 16/10; display: block; object-fit: cover; }.video-grid button > span { padding: 9px; display: block; }.video-grid b,.video-grid small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.video-grid b { font-size: 11px; }.video-grid small { margin-top: 3px; color: var(--mobile-text-muted); font-size: 8px; }
 .no-result { padding: 28px 10px; border: 1px dashed var(--mobile-border); border-radius: 14px; color: var(--mobile-text-muted); text-align: center; font-size: 10px; }
 

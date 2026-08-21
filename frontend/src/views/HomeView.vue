@@ -617,7 +617,29 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div ref="scroller" class="scroller" @scroll="onScroll">
+      <div class="feed-body" :class="{ 'with-following-users': tab === 'following' }">
+        <aside v-if="tab === 'following'" class="following-users" aria-label="我关注的用户">
+          <header>
+            <div><span>FOLLOWING</span><strong>关注用户</strong></div>
+            <b>{{ social.followingCount }}</b>
+          </header>
+          <div v-if="!auth.isLoggedIn" class="following-users-state">登录后查看关注用户</div>
+          <div v-else-if="social.vloggersLoading" class="following-users-state">正在加载…</div>
+          <div v-else-if="social.vloggersError" class="following-users-state bad">
+            <span>{{ social.vloggersError }}</span>
+            <button type="button" @click="social.refreshVloggers()">重试</button>
+          </div>
+          <div v-else-if="social.vloggers.length === 0" class="following-users-state">还没有关注用户</div>
+          <nav v-else>
+            <RouterLink v-for="user in social.vloggers" :key="user.id" class="following-user" :to="`/u/${user.id}`">
+              <UserAvatar :username="user.username" :id="user.id" :size="44" />
+              <span><strong>{{ user.username }}</strong><small>@{{ user.account_name }}</small></span>
+              <b class="following-arrow" aria-hidden="true">›</b>
+            </RouterLink>
+          </nav>
+        </aside>
+
+        <div ref="scroller" class="scroller" @scroll="onScroll">
         <div v-if="currentState.loading && currentState.items.length === 0" class="center-hint">加载中…</div>
         <div v-else-if="currentState.error && currentState.items.length === 0" class="center-hint bad">
           {{ currentState.error }}
@@ -719,6 +741,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </section>
+        </div>
       </div>
 
       <div v-if="drawer.open" class="drawer-backdrop" @click.self="closeDrawer">
@@ -772,6 +795,26 @@ onBeforeUnmount(() => {
 <style scoped>
 .page { height: 100%; display: flex; flex-direction: column; background: var(--surface-base); }
 
+.feed-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
+.feed-body.with-following-users { grid-template-columns: 260px minmax(0, 1fr); }
+.following-users { min-height: 0; overflow: hidden; border-right: 1px solid var(--border); background: #111114; }
+.following-users > header { min-height: 72px; padding: 17px 17px 14px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); }
+.following-users > header div { display: grid; gap: 4px; }
+.following-users > header span { color: var(--accent); font-size: 8px; font-weight: 900; letter-spacing: .16em; }
+.following-users > header strong { font-size: 15px; }
+.following-users > header > b { min-width: 28px; height: 28px; display: grid; place-items: center; border-radius: 999px; background: var(--surface-raised); color: var(--text-secondary); font-size: 11px; }
+.following-users nav { height: calc(100% - 72px); overflow-y: auto; padding: 8px; }
+.following-user { min-height: 62px; padding: 9px; display: grid; grid-template-columns: 44px minmax(0, 1fr) 15px; align-items: center; gap: 10px; border-radius: 8px; color: var(--text); }
+.following-user:hover { background: var(--surface-raised); }
+.following-user > span { min-width: 0; }
+.following-user strong,.following-user small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.following-user strong { font-size: 12px; }
+.following-user small { margin-top: 4px; color: var(--text-muted); font-size: 9px; }
+.following-arrow { color: var(--text-muted); font-size: 17px; font-weight: 500; }
+.following-users-state { min-height: 160px; padding: 28px 18px; display: grid; place-content: center; gap: 10px; color: var(--text-muted); font-size: 11px; text-align: center; }
+.following-users-state.bad { color: var(--danger); }
+.following-users-state button { padding: 7px 12px; border-radius: 6px; background: var(--surface-raised); color: var(--text-secondary); }
+
 .tabs {
   height: 56px; display: flex; align-items: center; justify-content: center; gap: 28px;
   padding: 0 18px; border-bottom: 1px solid var(--border);
@@ -796,7 +839,7 @@ onBeforeUnmount(() => {
 .top-chip:hover { background: var(--surface-hover); color: var(--text); }
 
 .scroller {
-  flex: 1; min-height: 0; overflow-y: auto;
+  min-width: 0; min-height: 0; overflow-y: auto;
   scroll-snap-type: y mandatory; scroll-behavior: smooth;
   overscroll-behavior: contain;
   scrollbar-width: none;
