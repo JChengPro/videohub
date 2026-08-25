@@ -14,6 +14,8 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+var ErrProcessingAttemptsExhausted = errors.New("media processing attempts exhausted")
+
 type Repository struct {
 	db *gorm.DB
 }
@@ -62,15 +64,86 @@ func NewOutboxMsg(queueName string, eventID string, payload any, eventType strin
 	return newOutboxMsg(queueName, eventID, payload, eventType, videoID, authorID, title)
 }
 
-// CreateWithOutbox = 发布视频时使用的事务方法。   先不直接发 MQ，而是把“要发的消息”可靠地写进 MySQL。
-func (r *Repository) CreateWithOutbox(ctx context.Context, video *Video) error {
+// CreateProcessingWithOutbox atomically creates a processing video and its media task.
+func (r *Repository) CreateProcessingWithOutbox(ctx context.Context, video *Video) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(video).Error; err != nil {
 			return err
 		}
 
-		eventID := newEventID("video_published")
+		eventID := newEventID("video_processing_requested")
+		event := mq.VideoProcessingEvent{
+			EventID:           eventID,
+			EventType:         "video_processing_requested",
+			VideoID:           video.ID,
+			AuthorID:          video.AuthorID,
+			OriginalObjectKey: video.OriginalObjectKey,
+		}
+		msg, err := newOutboxMsg(mq.VideoProcessingQueueName, eventID, event, event.EventType, video.ID, video.AuthorID, video.Title)
+		if err != nil {
+			return err
+		}
+		if err := tx.Create(msg).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+}
 
+// BeginProcessingAttempt locks a processing video and consumes one of its retry attempts.
+func (r *Repository) BeginProcessingAttempt(ctx context.Context, videoID uint, maxAttempts int) (*Video, error) {
+	if maxAttempts <= 0 {
+		maxAttempts = 3
+	}
+	var target Video
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&target, videoID).Error; err != nil {
+			return err
+		}
+		if target.Status != VideoStatusProcessing {
+			return nil
+		}
+		if target.ProcessingAttempts >= maxAttempts {
+			return ErrProcessingAttemptsExhausted
+		}
+		target.ProcessingAttempts++
+		return tx.Model(&Video{}).Where("id = ? AND status = ?", videoID, VideoStatusProcessing).Updates(map[string]any{
+			"processing_attempts": target.ProcessingAttempts,
+			"processing_error":    "",
+		}).Error
+	})
+	return &target, err
+}
+
+// CompleteProcessingWithOutbox publishes the processed media exactly once and emits the existing feed event.
+func (r *Repository) CompleteProcessingWithOutbox(ctx context.Context, video *Video) (bool, error) {
+	completed := false
+	candidatesJSON, err := json.Marshal(video.CoverCandidates)
+	if err != nil {
+		return false, err
+	}
+	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&Video{}).Where("id = ? AND status = ?", video.ID, VideoStatusProcessing).Updates(map[string]any{
+			"play_object_key":  video.PlayObjectKey,
+			"cover_object_key": video.CoverObjectKey,
+			"cover_candidates": string(candidatesJSON),
+			"video_codec":      video.VideoCodec,
+			"audio_codec":      video.AudioCodec,
+			"format_name":      video.FormatName,
+			"width":            video.Width,
+			"height":           video.Height,
+			"duration_millis":  video.DurationMillis,
+			"processing_error": "",
+			"status":           VideoStatusPublished,
+		})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return nil
+		}
+		completed = true
+		eventID := newEventID("video_published")
 		event := mq.VideoPublishedEvent{
 			EventID:        eventID,
 			EventType:      "video_published",
@@ -85,11 +158,54 @@ func (r *Repository) CreateWithOutbox(ctx context.Context, video *Video) error {
 		if err != nil {
 			return err
 		}
-		if err := tx.Create(msg).Error; err != nil {
-			return err
-		}
-		return nil
+		return tx.Create(msg).Error
 	})
+	return completed, err
+}
+
+func (r *Repository) RecordProcessingError(ctx context.Context, videoID uint, processingErr error) error {
+	message := ""
+	if processingErr != nil {
+		message = strings.TrimSpace(processingErr.Error())
+	}
+	if len(message) > 500 {
+		message = message[:500]
+	}
+	return r.db.WithContext(ctx).Model(&Video{}).Where("id = ? AND status = ?", videoID, VideoStatusProcessing).
+		Update("processing_error", message).Error
+}
+
+func (r *Repository) MarkProcessingFailed(ctx context.Context, videoID uint, processingErr error) error {
+	message := ""
+	if processingErr != nil {
+		message = strings.TrimSpace(processingErr.Error())
+	}
+	if len(message) > 500 {
+		message = message[:500]
+	}
+	return r.db.WithContext(ctx).Model(&Video{}).Where("id = ? AND status = ?", videoID, VideoStatusProcessing).Updates(map[string]any{
+		"status":           VideoStatusFailed,
+		"processing_error": message,
+	}).Error
+}
+
+func (r *Repository) ClearOriginalObjectKey(ctx context.Context, videoID uint, objectKey string) error {
+	return r.db.WithContext(ctx).Model(&Video{}).
+		Where("id = ? AND original_object_key = ?", videoID, objectKey).
+		Update("original_object_key", "").Error
+}
+
+func (r *Repository) SelectCandidateCover(ctx context.Context, videoID, authorID uint, objectKey string) error {
+	result := r.db.WithContext(ctx).Model(&Video{}).
+		Where("id = ? AND author_id = ? AND status = ?", videoID, authorID, VideoStatusPublished).
+		Update("cover_object_key", objectKey)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 func (r *Repository) DeleteWithOutbox(ctx context.Context, video *Video) error {

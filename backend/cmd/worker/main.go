@@ -61,6 +61,7 @@ func main() {
 		log.Fatalf("connect mysql failed: %v", err)
 	}
 	videoRepo := video.NewRepository(sqlDB)
+	mediaWorker := worker.NewMediaWorker(videoRepo, redisClient, fileStorage)
 	// worker 启动后，同时启动 outbox poller。
 	//poller 每 2 秒扫描一次 outbox_msgs 表。
 	//如果发现 pending 消息，就发到 RabbitMQ。
@@ -72,12 +73,53 @@ func main() {
 	notificationWorker := worker.NewNotificationWorker(notification.NewRepository(sqlDB), redisClient)
 
 	go consumeVideoPublished(rabbit, videoWorker)
+	go consumeMediaProcessing(rabbit, mediaWorker)
 	go consumeLike(rabbit, likeWorker)
 	go consumeComment(rabbit, commentWorker)
 	go consumeNotification(rabbit, notificationWorker)
 
 	log.Println("worker started, waiting message...")
 	select {} //永远阻塞，让主 goroutine 不退出
+}
+
+func consumeMediaProcessing(rabbit *mq.RabbitMQ, mediaWorker *worker.MediaWorker) {
+	consumerChannel, err := rabbit.NewChannel()
+	if err != nil {
+		log.Printf("create media consumer channel failed: %v", err)
+		return
+	}
+	defer consumerChannel.Close()
+	if err := consumerChannel.DeclareQueue(mq.VideoProcessingQueueName); err != nil {
+		log.Printf("declare media processing queue failed: %v", err)
+		return
+	}
+	deliveries, err := consumerChannel.Consume(mq.VideoProcessingQueueName)
+	if err != nil {
+		log.Printf("consume media processing queue failed: %v", err)
+		return
+	}
+	log.Println("media worker started")
+	for delivery := range deliveries {
+		var event mq.VideoProcessingEvent
+		if err := json.Unmarshal(delivery.Body, &event); err != nil {
+			log.Printf("invalid media processing message: %s", string(delivery.Body))
+			_ = delivery.Nack(false, false)
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
+		retry, handleErr := mediaWorker.Handle(ctx, event)
+		cancel()
+		if handleErr != nil {
+			log.Printf("handle media processing failed: video_id=%d retry=%v err=%v", event.VideoID, retry, handleErr)
+		}
+		if retry {
+			_ = delivery.Nack(false, true)
+			continue
+		}
+		if err := delivery.Ack(false); err != nil {
+			log.Printf("ack media processing message failed: %v", err)
+		}
+	}
 }
 
 func consumeNotification(rabbit *mq.RabbitMQ, notificationWorker *worker.NotificationWorker) {

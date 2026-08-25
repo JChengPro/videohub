@@ -19,13 +19,23 @@ type Video struct {
 	CoverURL    string `gorm:"type:varchar(255);not null" json:"cover_url"`
 	// ObjectKey 是文件在本地存储或 OSS 中的稳定路径。
 	// 私有 OSS 的签名 URL 会过期，因此数据库需要保存 ObjectKey。
-	PlayObjectKey  string    `gorm:"type:varchar(500);not null;default:''" json:"play_object_key"`
-	CoverObjectKey string    `gorm:"type:varchar(500);not null;default:''" json:"cover_object_key"`
-	CreateTime     time.Time `gorm:"autoCreateTime" json:"create_time"`
-	LikesCount     int64     `gorm:"column:likes_count;not null;default:0" json:"likes_count"`
-	CommentsCount  int64     `gorm:"-" json:"comments_count"`
-	Popularity     int64     `gorm:"column:popularity;not null;default:0" json:"popularity"`
-	Status         string    `gorm:"type:varchar(20);not null;default:published;index" json:"status"`
+	OriginalObjectKey  string    `gorm:"type:varchar(500);not null;default:''" json:"original_object_key"`
+	PlayObjectKey      string    `gorm:"type:varchar(500);not null;default:''" json:"play_object_key"`
+	CoverObjectKey     string    `gorm:"type:varchar(500);not null;default:''" json:"cover_object_key"`
+	CoverCandidates    []string  `gorm:"type:json;serializer:json" json:"cover_candidates,omitempty"`
+	VideoCodec         string    `gorm:"type:varchar(50);not null;default:''" json:"video_codec"`
+	AudioCodec         string    `gorm:"type:varchar(50);not null;default:''" json:"audio_codec"`
+	FormatName         string    `gorm:"type:varchar(100);not null;default:''" json:"format_name"`
+	Width              int       `gorm:"not null;default:0" json:"width"`
+	Height             int       `gorm:"not null;default:0" json:"height"`
+	DurationMillis     int64     `gorm:"not null;default:0" json:"duration_millis"`
+	ProcessingAttempts int       `gorm:"not null;default:0" json:"processing_attempts"`
+	ProcessingError    string    `gorm:"type:varchar(500);not null;default:''" json:"processing_error,omitempty"`
+	CreateTime         time.Time `gorm:"autoCreateTime" json:"create_time"`
+	LikesCount         int64     `gorm:"column:likes_count;not null;default:0" json:"likes_count"`
+	CommentsCount      int64     `gorm:"-" json:"comments_count"`
+	Popularity         int64     `gorm:"column:popularity;not null;default:0" json:"popularity"`
+	Status             string    `gorm:"type:varchar(20);not null;default:published;index" json:"status"`
 }
 
 // outbox表
@@ -63,6 +73,27 @@ type PublishRequest struct {
 	CoverURL       string `json:"cover_url"`
 	PlayObjectKey  string `json:"play_object_key"`
 	CoverObjectKey string `json:"cover_object_key"`
+}
+
+type ProcessingStatusRequest struct {
+	ID uint `json:"id"`
+}
+
+type ProcessingStatusResponse struct {
+	VideoID            uint     `json:"video_id"`
+	Status             string   `json:"status"`
+	Stage              string   `json:"stage"`
+	Progress           int      `json:"progress"`
+	Attempts           int      `json:"attempts"`
+	Error              string   `json:"error,omitempty"`
+	PlayURL            string   `json:"play_url,omitempty"`
+	CoverURL           string   `json:"cover_url,omitempty"`
+	CandidateCoverURLs []string `json:"candidate_cover_urls,omitempty"`
+}
+
+type SelectCoverRequest struct {
+	ID    uint `json:"id"`
+	Index int  `json:"index"`
 }
 
 // 根据ID查找视频结构体

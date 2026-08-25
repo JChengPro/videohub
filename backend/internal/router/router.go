@@ -87,6 +87,8 @@ func New(
 		protectedVideoGroup.POST("/uploadCover", videoHandler.UploadCover)
 		protectedVideoGroup.POST("/uploadVideo", videoHandler.UploadVideo)
 		protectedVideoGroup.POST("/publish", videoHandler.Publish)
+		protectedVideoGroup.POST("/processingStatus", videoHandler.ProcessingStatus)
+		protectedVideoGroup.POST("/selectCover", videoHandler.SelectCover)
 		protectedVideoGroup.POST("/delete", videoHandler.Delete)
 
 		//分片传输路由

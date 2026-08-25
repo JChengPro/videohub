@@ -40,32 +40,110 @@ func (s *Service) Publish(ctx context.Context, video *Video) error {
 		return errors.New("video is null")
 	}
 	video.Title = strings.TrimSpace(video.Title)
-	video.PlayObjectKey = strings.TrimSpace(video.PlayObjectKey)
+	video.OriginalObjectKey = strings.TrimSpace(video.OriginalObjectKey)
 	video.CoverObjectKey = strings.TrimSpace(video.CoverObjectKey)
 
 	if video.Title == "" {
 		return errors.New("title is required")
 	}
-	if video.PlayObjectKey == "" {
+	if video.OriginalObjectKey == "" {
 		return errors.New("play_object_key is required")
 	}
-	if video.CoverObjectKey == "" {
-		return errors.New("cover_object_key is required")
+	ownerVideoPrefix := fmt.Sprintf("videos/%d/", video.AuthorID)
+	if !strings.HasPrefix(video.OriginalObjectKey, ownerVideoPrefix) {
+		return errors.New("play_object_key does not belong to current account")
+	}
+	if video.CoverObjectKey != "" {
+		ownerCoverPrefix := fmt.Sprintf("covers/%d/", video.AuthorID)
+		if !strings.HasPrefix(video.CoverObjectKey, ownerCoverPrefix) {
+			return errors.New("cover_object_key does not belong to current account")
+		}
 	}
 
-	// 视频资料校验完成，写库时标记为已发布状态
-	video.Status = VideoStatusPublished
+	video.Status = VideoStatusProcessing
 	// 私有 OSS 签名 URL 会过期，数据库只保存稳定 ObjectKey。
 	video.PlayURL = ""
 	video.CoverURL = ""
+	video.PlayObjectKey = ""
 
 	//使用outbox解决数据库和mq的双写一致性问题
-	if err := s.repo.CreateWithOutbox(ctx, video); err != nil {
+	if err := s.repo.CreateProcessingWithOutbox(ctx, video); err != nil {
 		return err
 	}
+	// Redis progress is observational; a temporary Redis failure must not turn a
+	// successfully committed video task into a misleading HTTP error.
+	_ = SaveProcessingProgress(ctx, s.cache, video.ID, "queued", 0)
+	return nil
+}
 
-	// 发布响应临时生成可访问 URL，但不会将签名 URL 写入数据库。
-	return RefreshAccessURLs(ctx, s.fileStorage, video)
+func (s *Service) ProcessingStatus(ctx context.Context, videoID, accountID uint) (*ProcessingStatusResponse, error) {
+	if videoID == 0 || accountID == 0 {
+		return nil, errors.New("video id and account id are required")
+	}
+	target, err := s.repo.FindByID(ctx, videoID)
+	if err != nil {
+		return nil, err
+	}
+	if target.AuthorID != accountID {
+		return nil, errors.New("unauthorized")
+	}
+
+	response := &ProcessingStatusResponse{
+		VideoID:  target.ID,
+		Status:   target.Status,
+		Attempts: target.ProcessingAttempts,
+		Error:    target.ProcessingError,
+	}
+	if target.Status == VideoStatusPublished {
+		response.Stage = "completed"
+		response.Progress = 100
+		if err := RefreshAccessURLs(ctx, s.fileStorage, target); err != nil {
+			return nil, err
+		}
+		response.PlayURL = target.PlayURL
+		response.CoverURL = target.CoverURL
+		for _, objectKey := range target.CoverCandidates {
+			url, urlErr := s.fileStorage.URL(ctx, objectKey, time.Hour)
+			if urlErr != nil {
+				return nil, urlErr
+			}
+			response.CandidateCoverURLs = append(response.CandidateCoverURLs, url)
+		}
+		return response, nil
+	}
+	if target.Status == VideoStatusFailed {
+		response.Stage = "failed"
+		return response, nil
+	}
+
+	progress, progressErr := LoadProcessingProgress(ctx, s.cache, videoID)
+	if progressErr == nil && progress.VideoID != 0 {
+		response.Stage = progress.Stage
+		response.Progress = progress.Progress
+	} else {
+		response.Stage = "queued"
+	}
+	return response, nil
+}
+
+func (s *Service) SelectCandidateCover(ctx context.Context, videoID, accountID uint, index int) error {
+	if videoID == 0 || accountID == 0 {
+		return errors.New("video id and account id are required")
+	}
+	target, err := s.repo.FindByID(ctx, videoID)
+	if err != nil {
+		return err
+	}
+	if target.AuthorID != accountID {
+		return errors.New("unauthorized")
+	}
+	if index < 0 || index >= len(target.CoverCandidates) {
+		return errors.New("invalid cover candidate index")
+	}
+	if err := s.repo.SelectCandidateCover(ctx, videoID, accountID, target.CoverCandidates[index]); err != nil {
+		return err
+	}
+	return s.deleteDetailCache(ctx, videoID)
 }
 
 func (s *Service) Detail(ctx context.Context, id uint) (*Video, error) {

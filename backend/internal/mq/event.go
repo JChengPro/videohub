@@ -1,6 +1,15 @@
 package mq
 
 const VideoPublishedQueueName = "feedsystem.video.published.queue"
+const VideoProcessingQueueName = "feedsystem.video.processing.queue"
+
+type VideoProcessingEvent struct {
+	EventID           string `json:"event_id"`
+	EventType         string `json:"event_type"`
+	VideoID           uint   `json:"video_id"`
+	AuthorID          uint   `json:"author_id"`
+	OriginalObjectKey string `json:"original_object_key"`
+}
 
 type VideoPublishedEvent struct {
 	EventID        string `json:"event_id"`

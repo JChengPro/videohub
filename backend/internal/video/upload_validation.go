@@ -10,10 +10,16 @@ import (
 var allowedVideoExtensions = map[string]struct{}{
 	".3gp":  {},
 	".3gpp": {},
+	".avi":  {},
+	".flv":  {},
 	".m4v":  {},
+	".mkv":  {},
 	".mov":  {},
 	".mp4":  {},
+	".mpeg": {},
+	".mpg":  {},
 	".webm": {},
+	".wmv":  {},
 }
 
 func normalizeVideoExtension(value string) (string, error) {
@@ -22,7 +28,7 @@ func normalizeVideoExtension(value string) (string, error) {
 		ext = filepath.Ext(ext)
 	}
 	if _, ok := allowedVideoExtensions[ext]; !ok {
-		return "", errors.New("unsupported video format; allowed: mp4, mov, m4v, webm, 3gp")
+		return "", errors.New("unsupported video format; allowed: mp4, mov, m4v, webm, mkv, avi, 3gp, 3gpp, flv, wmv, mpeg, mpg")
 	}
 	return ext, nil
 }

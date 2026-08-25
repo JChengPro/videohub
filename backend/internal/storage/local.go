@@ -59,6 +59,16 @@ func (s *LocalStorage) Upload(ctx context.Context, objectKey string, reader io.R
 	return err
 }
 
+func (s *LocalStorage) Open(ctx context.Context, objectKey string) (io.ReadCloser, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := validateObjectKey(objectKey); err != nil {
+		return nil, err
+	}
+	return os.Open(filepath.Join(s.rootDir, filepath.FromSlash(objectKey)))
+}
+
 // Delete 删除本地磁盘中的文件。
 func (s *LocalStorage) Delete(ctx context.Context, objectKey string) error {
 	if err := ctx.Err(); err != nil {

@@ -209,15 +209,15 @@ func (h *Handler) Publish(c *gin.Context) {
 		return
 	}
 	video := &Video{
-		AuthorID:       accountID,
-		Username:       username,
-		Title:          req.Title,
-		Description:    req.Description,
-		PlayURL:        req.PlayURL,
-		CoverURL:       req.CoverURL,
-		PlayObjectKey:  req.PlayObjectKey,
-		CoverObjectKey: req.CoverObjectKey,
-		CreateTime:     time.Now(),
+		AuthorID:          accountID,
+		Username:          username,
+		Title:             req.Title,
+		Description:       req.Description,
+		PlayURL:           req.PlayURL,
+		CoverURL:          req.CoverURL,
+		OriginalObjectKey: req.PlayObjectKey,
+		CoverObjectKey:    req.CoverObjectKey,
+		CreateTime:        time.Now(),
 	}
 
 	if err := h.service.Publish(c.Request.Context(), video); err != nil {
@@ -225,6 +225,43 @@ func (h *Handler) Publish(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, video)
+}
+
+func (h *Handler) ProcessingStatus(c *gin.Context) {
+	var req ProcessingStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	accountID, ok := currentAccountID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid accountID"})
+		return
+	}
+	response, err := h.service.ProcessingStatus(c.Request.Context(), req.ID, accountID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+func (h *Handler) SelectCover(c *gin.Context) {
+	var req SelectCoverRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	accountID, ok := currentAccountID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid accountID"})
+		return
+	}
+	if err := h.service.SelectCandidateCover(c.Request.Context(), req.ID, accountID, req.Index); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "cover selected"})
 }
 
 func (h *Handler) Detail(ctx *gin.Context) {

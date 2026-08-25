@@ -19,6 +19,10 @@ func (closingTestStorage) Upload(_ context.Context, _ string, reader io.Reader) 
 	return nil
 }
 
+func (closingTestStorage) Open(context.Context, string) (io.ReadCloser, error) {
+	return nil, os.ErrNotExist
+}
+
 func (closingTestStorage) Delete(context.Context, string) error { return nil }
 
 func (closingTestStorage) URL(_ context.Context, objectKey string, _ time.Duration) (string, error) {
@@ -28,7 +32,20 @@ func (closingTestStorage) URL(_ context.Context, objectKey string, _ time.Durati
 func TestNormalizeVideoExtension(t *testing.T) {
 	t.Parallel()
 
-	for _, input := range []string{".mp4", "clip.MOV", ".m4v", ".webm", ".3gp", ".3gpp"} {
+	for _, input := range []string{
+		".mp4",
+		"clip.MOV",
+		".m4v",
+		".webm",
+		".3gp",
+		".3gpp",
+		"clip.MKV",
+		".avi",
+		".flv",
+		".wmv",
+		".mpeg",
+		".mpg",
+	} {
 		if _, err := normalizeVideoExtension(input); err != nil {
 			t.Fatalf("expected %q to be supported: %v", input, err)
 		}

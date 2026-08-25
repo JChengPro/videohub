@@ -49,6 +49,16 @@ func (s *OSSStorage) Upload(ctx context.Context, objectKey string, reader io.Rea
 	return s.bucket.PutObject(objectKey, reader)
 }
 
+func (s *OSSStorage) Open(ctx context.Context, objectKey string) (io.ReadCloser, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := validateObjectKey(objectKey); err != nil {
+		return nil, err
+	}
+	return s.bucket.GetObject(objectKey)
+}
+
 // Delete 删除 OSS 中的对象。
 // OSS 删除不存在的对象也会返回成功，因此该操作天然幂等。
 func (s *OSSStorage) Delete(ctx context.Context, objectKey string) error {

@@ -21,6 +21,9 @@ type Storage interface {
 	// 不需要先将文件完整保存到本地。
 	Upload(ctx context.Context, objectKey string, reader io.Reader) error
 
+	// Open returns a readable stream for an existing object. The caller must close it.
+	Open(ctx context.Context, objectKey string) (io.ReadCloser, error)
+
 	// Delete 删除 objectKey 对应的文件。
 	// 删除不存在的文件时，具体实现应尽量按幂等方式处理。
 	Delete(ctx context.Context, objectKey string) error
