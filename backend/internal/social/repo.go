@@ -2,6 +2,7 @@ package social
 
 import (
 	"context"
+	"fmt"
 
 	"backend/internal/account"
 	"backend/internal/mq"
@@ -35,6 +36,9 @@ func (r *Repository) FollowWithNotificationOutbox(ctx context.Context, relation 
 		}
 
 		eventID := video.NewEventID("notification_social_followed")
+		// One actor/receiver pair owns one follow notification. This business key
+		// prevents repeated follow requests from filling the inbox with duplicates.
+		dedupKey := fmt.Sprintf("notification:follow:%d:%d", relation.VloggerID, relation.FollowerID)
 		event := mq.NotificationEvent{
 			EventID:    eventID,
 			Type:       "follow",
@@ -43,7 +47,7 @@ func (r *Repository) FollowWithNotificationOutbox(ctx context.Context, relation 
 			TargetType: "account",
 			TargetID:   relation.FollowerID,
 			Content:    "关注了你",
-			DedupKey:   eventID,
+			DedupKey:   dedupKey,
 		}
 		msg, err := video.NewOutboxMsg(
 			mq.NotificationQueueName,

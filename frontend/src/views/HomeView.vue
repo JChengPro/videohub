@@ -83,6 +83,8 @@ let resumeAfterVisibility = false
 let resumeAfterDrawer = false
 let drawerTrigger: HTMLElement | null = null
 let followingRequest = 0
+let recommendRequest = 0
+let hotRequest = 0
 let commentRequest = 0
 
 const currentState = computed(() => {
@@ -227,40 +229,54 @@ async function needLogin() {
 }
 
 async function loadRecommend(reset: boolean) {
-  if (recommend.loading) return
-  recommend.loading = true
-  recommend.error = ''
-  try {
-    const res = await feedApi.listLatest({ limit: 10, latest_time: reset ? 0 : recommend.nextTime })
-    recommend.hasMore = res.has_more
+	if (!reset && recommend.loading) return
+	const request = reset ? ++recommendRequest : recommendRequest
+	recommend.loading = true
+	recommend.error = ''
+	try {
+		const res = await feedApi.listLatest({ limit: 10, latest_time: reset ? 0 : recommend.nextTime })
+		if (request !== recommendRequest) return
+		recommend.hasMore = res.has_more
     recommend.nextTime = res.next_time
     recommend.items = reset ? res.video_list : recommend.items.concat(res.video_list)
-  } catch (e) {
-    recommend.error = e instanceof ApiError ? e.message : String(e)
-  } finally {
-    recommend.loading = false
-  }
+	} catch (e) {
+		if (request === recommendRequest) recommend.error = e instanceof ApiError ? e.message : String(e)
+	} finally {
+		if (request === recommendRequest) recommend.loading = false
+	}
 }
 
 async function loadHot(reset: boolean) {
-  if (hot.loading) return
-  hot.loading = true
+	if (!reset && hot.loading) return
+	const request = reset ? ++hotRequest : hotRequest
+	hot.loading = true
   hot.error = ''
   try {
-    const res = await feedApi.listLikesCount({
+		const res = await feedApi.listLikesCount({
       limit: 10,
       likes_count_before: reset ? undefined : hot.nextLikesCountBefore,
       id_before: reset ? undefined : hot.nextIdBefore,
-    })
+		})
+		if (request !== hotRequest) return
     hot.hasMore = res.has_more
     hot.nextLikesCountBefore = res.next_likes_count_before
     hot.nextIdBefore = res.next_id_before
     hot.items = reset ? res.video_list : hot.items.concat(res.video_list)
-  } catch (e) {
-    hot.error = e instanceof ApiError ? e.message : String(e)
-  } finally {
-    hot.loading = false
-  }
+	} catch (e) {
+		if (request === hotRequest) hot.error = e instanceof ApiError ? e.message : String(e)
+	} finally {
+		if (request === hotRequest) hot.loading = false
+	}
+}
+
+function syncLikeState(videoId: number, isLiked: boolean, likesCount: number) {
+	for (const state of [recommend, hot, following]) {
+		for (const video of state.items) {
+			if (video.id !== videoId) continue
+			video.is_liked = isLiked
+			video.likes_count = Math.max(0, likesCount)
+		}
+	}
 }
 
 async function loadFollowing(reset: boolean) {
@@ -314,8 +330,7 @@ async function toggleLike(item: FeedVideoItem) {
   likeBusy[key] = true
   try {
     const state = item.is_liked ? await likeApi.unlike(item.id) : await likeApi.like(item.id)
-    item.is_liked = state.is_liked
-    item.likes_count = Math.max(0, state.likes_count)
+		syncLikeState(item.id, state.is_liked, state.likes_count)
   } catch (e) {
     const msg = e instanceof ApiError ? e.message : String(e)
     toast.error(msg)
@@ -576,11 +591,14 @@ watch(
 )
 
 watch(
-  () => auth.isLoggedIn,
-  async (v) => {
-    if (!v) await loadFollowing(true)
-    else if (tab.value === 'following') await loadFollowing(true)
-  },
+	() => auth.token,
+	async () => {
+		await Promise.all([
+			loadRecommend(true),
+			loadHot(true),
+			loadFollowing(true),
+		])
+	},
 )
 
 onMounted(async () => {

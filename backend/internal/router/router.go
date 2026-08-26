@@ -114,7 +114,7 @@ func New(
 		protectedFeedGroup.POST("/listByFollowing", feedHandler.ListFollowing)
 	}
 
-	likeService := video.NewLikeService(likeRepo, videoRepo, fileStorage)
+	likeService := video.NewLikeService(likeRepo, videoRepo, fileStorage, redisClient)
 	likeHandler := video.NewLikeHandler(likeService)
 	likeGroup := r.Group("/like")
 	protectedLikeGroup := likeGroup.Group("")

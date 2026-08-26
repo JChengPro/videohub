@@ -90,8 +90,7 @@ async function load(reset: boolean) {
       before_id: reset ? undefined : state.nextBeforeId,
     })
     if (request !== loadRequest || selectedFilter !== filter.value) return
-    const seen = new Set(state.items.map((item) => item.id))
-    state.items = reset ? res.notifications : state.items.concat(res.notifications.filter((item) => !seen.has(item.id)))
+		state.items = reset ? dedupeNotifications(res.notifications) : dedupeNotifications(state.items.concat(res.notifications))
     state.hasMore = res.has_more
     state.nextBeforeId = res.next_before_id
   } catch (e) {
@@ -99,6 +98,20 @@ async function load(reset: boolean) {
   } finally {
     if (request === loadRequest) state.loading = false
   }
+}
+
+function notificationKey(item: Notification) {
+	return item.type === 'follow' ? `follow:${item.actor_id}` : `id:${item.id}`
+}
+
+function dedupeNotifications(items: Notification[]) {
+	const seen = new Set<string>()
+	return items.filter((item) => {
+		const key = notificationKey(item)
+		if (seen.has(key)) return false
+		seen.add(key)
+		return true
+	})
 }
 
 async function selectFilter(next: Filter) {

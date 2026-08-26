@@ -377,12 +377,12 @@ function onVisibilityChange() {
 }
 
 watch(() => props.mode, () => void load(true))
-watch(() => auth.isLoggedIn, () => {
-  if (props.mode === 'following' || auth.isLoggedIn) void load(true)
-  else {
-    followed.value = new Set()
-    items.value.forEach((item) => { item.is_liked = false })
-  }
+watch(() => auth.token, () => {
+	if (props.mode === 'following' || auth.isLoggedIn) void load(true)
+	else {
+		followed.value = new Set()
+		void load(true)
+	}
 })
 
 onMounted(() => {

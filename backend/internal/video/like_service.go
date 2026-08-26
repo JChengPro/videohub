@@ -1,19 +1,38 @@
 package video
 
 import (
+	"backend/internal/cache"
 	"backend/internal/storage"
 	"context"
 	"errors"
+	"fmt"
+	"log"
 )
 
 type LikeService struct {
 	likeRepo  *LikeRepository
 	videoRepo *Repository
 	storage   storage.Storage
+	cache     *cache.Client
 }
 
-func NewLikeService(likeRepo *LikeRepository, videoRepo *Repository, fileStorage storage.Storage) *LikeService {
-	return &LikeService{likeRepo: likeRepo, videoRepo: videoRepo, storage: fileStorage}
+func NewLikeService(likeRepo *LikeRepository, videoRepo *Repository, fileStorage storage.Storage, cacheClient *cache.Client) *LikeService {
+	return &LikeService{likeRepo: likeRepo, videoRepo: videoRepo, storage: fileStorage, cache: cacheClient}
+}
+
+func (s *LikeService) invalidateVideoCaches(ctx context.Context, videoID uint) {
+	if s.cache == nil || videoID == 0 {
+		return
+	}
+	if err := s.cache.Del(
+		ctx,
+		fmt.Sprintf("video:detail:id=%d", videoID),
+		fmt.Sprintf("video:entity:%d", videoID),
+	); err != nil {
+		// The database transaction is already committed. Keep the request successful;
+		// the worker will retry cache invalidation from the outbox event.
+		log.Printf("invalidate like caches failed: video_id=%d err=%v", videoID, err)
+	}
 }
 
 func (s *LikeService) Like(ctx context.Context, videoID uint, accountID uint) (LikeStateResponse, error) {
@@ -37,6 +56,7 @@ func (s *LikeService) Like(ctx context.Context, videoID uint, accountID uint) (L
 	if err != nil {
 		return LikeStateResponse{}, err
 	}
+	s.invalidateVideoCaches(ctx, videoID)
 	return LikeStateResponse{IsLiked: true, LikesCount: likesCount}, nil
 }
 
@@ -58,6 +78,7 @@ func (s *LikeService) Unlike(ctx context.Context, videoID, accountID uint) (Like
 	if err != nil {
 		return LikeStateResponse{}, err
 	}
+	s.invalidateVideoCaches(ctx, videoID)
 	return LikeStateResponse{IsLiked: false, LikesCount: likesCount}, nil
 }
 

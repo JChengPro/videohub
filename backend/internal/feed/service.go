@@ -427,6 +427,11 @@ func (s *Service) toFeedVideoItems(ctx context.Context, videos []*video.Video, a
 	}
 
 	likedSet, _ := s.likeRepo.LikedVideoIDs(ctx, accountID, ids)
+	likeCounts, err := s.likeRepo.LikeCounts(ctx, ids)
+	if err != nil {
+		log.Printf("feed like count query failed: %v", err)
+		likeCounts = nil
+	}
 	commentCounts, err := s.videoRepo.CommentCounts(ctx, ids)
 	if err != nil {
 		log.Printf("feed comment count query failed: %v", err)
@@ -437,6 +442,10 @@ func (s *Service) toFeedVideoItems(ctx context.Context, videos []*video.Video, a
 	for i, v := range videos {
 		safeCopy := *v
 		_ = video.RefreshAccessURLs(ctx, s.fileStorage, &safeCopy)
+		likesCount := safeCopy.LikesCount
+		if likeCounts != nil {
+			likesCount = likeCounts[safeCopy.ID]
+		}
 		items[i] = FeedVideoItem{
 			ID:            safeCopy.ID,
 			Author:        FeedAuthor{ID: safeCopy.AuthorID, Username: safeCopy.Username},
@@ -445,7 +454,7 @@ func (s *Service) toFeedVideoItems(ctx context.Context, videos []*video.Video, a
 			PlayURL:       safeCopy.PlayURL,
 			CoverURL:      safeCopy.CoverURL,
 			CreateTime:    safeCopy.CreateTime.UnixMilli(),
-			LikesCount:    safeCopy.LikesCount,
+			LikesCount:    likesCount,
 			CommentsCount: commentCounts[safeCopy.ID],
 			IsLiked:       likedSet[safeCopy.ID],
 		}

@@ -29,6 +29,9 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := migrateAccounts(db); err != nil {
 		return err
 	}
+	if err := migrateNotifications(db); err != nil {
+		return err
+	}
 	return db.AutoMigrate(
 		&account.Account{},
 		&video.Video{},
@@ -42,6 +45,33 @@ func AutoMigrate(db *gorm.DB) error {
 		&message.Message{},
 		&message.Block{},
 	)
+}
+
+// migrateNotifications collapses legacy duplicate follow notifications before
+// the stable follow dedup key is applied by new events.
+func migrateNotifications(database *gorm.DB) error {
+	if !database.Migrator().HasTable(&notification.Notification{}) {
+		return nil
+	}
+	if err := database.Exec(`
+		DELETE older FROM notifications AS older
+		JOIN notifications AS newer
+		  ON newer.receiver_id = older.receiver_id
+		 AND newer.actor_id = older.actor_id
+		 AND newer.type = 'follow'
+		 AND older.type = 'follow'
+		 AND newer.id > older.id
+	`).Error; err != nil {
+		return fmt.Errorf("remove duplicate follow notifications: %w", err)
+	}
+	if err := database.Exec(`
+		UPDATE notifications
+		SET dedup_key = CONCAT('notification:follow:', receiver_id, ':', actor_id)
+		WHERE type = 'follow'
+	`).Error; err != nil {
+		return fmt.Errorf("normalize follow notification dedup keys: %w", err)
+	}
+	return nil
 }
 
 func migrateAccounts(database *gorm.DB) error {

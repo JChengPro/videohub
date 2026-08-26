@@ -234,3 +234,30 @@ func (r *LikeRepository) LikedVideoIDs(ctx context.Context, accountID uint, vide
 	}
 	return set, nil
 }
+
+// LikeCounts returns authoritative counters from the likes relation table.
+// Feed entities are cached, so their denormalized likes_count can briefly be stale.
+func (r *LikeRepository) LikeCounts(ctx context.Context, videoIDs []uint) (map[uint]int64, error) {
+	counts := make(map[uint]int64, len(videoIDs))
+	if len(videoIDs) == 0 {
+		return counts, nil
+	}
+
+	type countRow struct {
+		VideoID uint  `gorm:"column:video_id"`
+		Count   int64 `gorm:"column:count"`
+	}
+	var rows []countRow
+	if err := r.db.WithContext(ctx).
+		Model(&Like{}).
+		Select("video_id, COUNT(*) AS count").
+		Where("video_id IN ?", videoIDs).
+		Group("video_id").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		counts[row.VideoID] = row.Count
+	}
+	return counts, nil
+}

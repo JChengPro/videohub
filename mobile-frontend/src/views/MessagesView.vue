@@ -40,8 +40,21 @@ function formatDate(value: string) {
 }
 
 function mergeUnique(current: Notification[], incoming: Notification[]) {
-  const seen = new Set(current.map((item) => item.id))
-  return current.concat(incoming.filter((item) => !seen.has(item.id)))
+	return dedupeNotifications(current.concat(incoming))
+}
+
+function notificationKey(item: Notification) {
+	return item.type === 'follow' ? `follow:${item.actor_id}` : `id:${item.id}`
+}
+
+function dedupeNotifications(values: Notification[]) {
+	const seen = new Set<string>()
+	return values.filter((item) => {
+		const key = notificationKey(item)
+		if (seen.has(key)) return false
+		seen.add(key)
+		return true
+	})
 }
 
 async function load(reset: boolean) {
@@ -70,7 +83,7 @@ async function load(reset: boolean) {
   try {
     const response = await api.notifications(reset ? 0 : nextBeforeId.value)
     if (request !== requestId) return
-    items.value = reset ? response.notifications : mergeUnique(items.value, response.notifications)
+		items.value = reset ? dedupeNotifications(response.notifications) : mergeUnique(items.value, response.notifications)
     hasMore.value = response.has_more
     nextBeforeId.value = response.next_before_id
   } catch (cause) {

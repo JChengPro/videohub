@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive } from 'vue'
+import { onMounted, reactive, watch } from 'vue'
 
 import { ApiError } from '../api/client'
 import * as feedApi from '../api/feed'
@@ -20,16 +20,19 @@ const state = reactive({
 })
 
 const likeBusy = reactive<Record<string, boolean>>({})
+let loadRequest = 0
 
 async function loadHot(reset: boolean) {
-  if (state.loading) return
-  state.loading = true; state.error = ''
-  try {
-    const res = await feedApi.listByPopularity({ limit: state.limit, as_of: reset ? 0 : state.asOf, offset: reset ? 0 : state.nextOffset })
-    state.hasMore = res.has_more; state.asOf = res.as_of; state.nextOffset = res.next_offset
-    state.items = reset ? res.video_list : state.items.concat(res.video_list)
-  } catch (e) { state.error = e instanceof ApiError ? e.message : String(e) }
-  finally { state.loading = false }
+	if (!reset && state.loading) return
+	const request = reset ? ++loadRequest : loadRequest
+	state.loading = true; state.error = ''
+	try {
+		const res = await feedApi.listByPopularity({ limit: state.limit, as_of: reset ? 0 : state.asOf, offset: reset ? 0 : state.nextOffset })
+		if (request !== loadRequest) return
+		state.hasMore = res.has_more; state.asOf = res.as_of; state.nextOffset = res.next_offset
+		state.items = reset ? res.video_list : state.items.concat(res.video_list)
+	} catch (e) { if (request === loadRequest) state.error = e instanceof ApiError ? e.message : String(e) }
+	finally { if (request === loadRequest) state.loading = false }
 }
 
 async function toggleLike(item: FeedVideoItem) {
@@ -46,6 +49,7 @@ async function toggleLike(item: FeedVideoItem) {
 }
 
 onMounted(async () => { await loadHot(true) })
+watch(() => auth.token, () => void loadHot(true))
 </script>
 
 <template>
