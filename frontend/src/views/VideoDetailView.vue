@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
 import AppIcon from '../components/AppIcon.vue'
 import UserAvatar from '../components/UserAvatar.vue'
+import VideoControls from '../components/VideoControls.vue'
 import { ApiError } from '../api/client'
 import * as commentApi from '../api/comment'
 import * as likeApi from '../api/like'
@@ -38,6 +39,7 @@ const paused = ref(true)
 const mediaLoading = ref(false)
 const playbackError = ref('')
 const videoEl = ref<HTMLVideoElement | null>(null)
+const playerSeeking = ref(false)
 const commentInput = ref<HTMLTextAreaElement | null>(null)
 let videoRequest = 0
 let likeRequest = 0
@@ -461,7 +463,7 @@ onBeforeUnmount(() => {
         <div v-if="state.loading" class="center-hint">加载中…</div>
         <div v-else-if="state.error" class="center-hint bad">{{ state.error }}</div>
 
-        <div v-else-if="state.video" class="stage" @click="togglePlayPause" @dblclick.prevent="toggleLike">
+        <div v-else-if="state.video" class="stage" :class="{ seeking: playerSeeking }" @click="togglePlayPause" @dblclick.prevent="toggleLike">
           <video
             ref="videoEl"
             class="video"
@@ -482,6 +484,7 @@ onBeforeUnmount(() => {
           <button v-if="paused && !mediaLoading && !playbackError" class="pause-indicator" type="button" aria-label="继续播放" @click.stop="togglePlayPause">
             <AppIcon name="play" :size="29" />
           </button>
+          <VideoControls :video="videoEl" @seeking-change="playerSeeking = $event" />
 
           <div class="meta">
             <RouterLink class="author-link" :to="`/u/${state.video.author_id}`" @click.stop>
@@ -772,11 +775,14 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
+.stage.seeking .meta,.stage.seeking .actions { opacity:0; pointer-events:none; }
+.meta,.actions { transition:opacity 140ms ease; }
+
 .meta {
   position: absolute;
   z-index: 2;
   left: 22px;
-  bottom: 24px;
+  bottom: 64px;
   max-width: min(620px, calc(100% - 96px));
 }
 
@@ -847,7 +853,7 @@ onBeforeUnmount(() => {
   position: absolute;
   z-index: 2;
   right: 18px;
-  bottom: 24px;
+  bottom: 64px;
   display: grid;
   gap: 12px;
 }
@@ -1211,8 +1217,8 @@ onBeforeUnmount(() => {
   .wrap { padding: 12px 8px; }
   .stage { height: calc(100dvh - 56px - 52px - 62px - env(safe-area-inset-bottom) - 24px); }
   .hint { display: none; }
-  .meta { left: 14px; bottom: 16px; }
-  .actions { right: 10px; bottom: 14px; }
+  .meta { left: 14px; bottom: 60px; }
+  .actions { right: 10px; bottom: 60px; }
   .act { width: 62px; padding: 9px 7px; border-radius: 17px; }
 }
 /* Keep the standalone player visually identical to the feed player. */
@@ -1235,12 +1241,12 @@ onBeforeUnmount(() => {
   .video,
   .grad { border-radius: 14px; }
   .grad { background: linear-gradient(to top, rgba(0,0,0,.82), transparent 48%); }
-  .meta { left: 20px; right: auto; bottom: 20px; max-width: min(760px, calc(100% - 116px)); }
+  .meta { left: 20px; right: auto; bottom: 64px; max-width: min(760px, calc(100% - 116px)); }
   .author-link { margin-bottom: 5px; font-size: 14px; }
   .title { margin-bottom: 7px; font-size: clamp(22px, 2.2vw, 34px); line-height: 1.16; letter-spacing: -.025em; }
   .desc { max-width: 100%; font-size: 12px; line-height: 1.5; }
   .asset-link { margin-top: 7px; padding: 5px 8px; border: 0; border-radius: 6px; font-size: 10px; }
-  .actions { right: 14px; bottom: 18px; gap: 10px; }
+  .actions { right: 14px; bottom: 64px; gap: 10px; }
   .act {
     width: 60px;
     min-height: 60px;

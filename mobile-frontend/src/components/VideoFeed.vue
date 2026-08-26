@@ -9,6 +9,7 @@ import { useToastStore } from '../stores/toast'
 import AppIcon from './AppIcon.vue'
 import Avatar from './Avatar.vue'
 import CommentsSheet from './CommentsSheet.vue'
+import VideoControls from './VideoControls.vue'
 
 type FeedMode = 'latest' | 'following' | 'hot'
 
@@ -27,6 +28,8 @@ const nextTime = ref(0)
 const nextOffset = ref(0)
 const asOf = ref(0)
 const activeIndex = ref(0)
+const activeVideoElement = ref<HTMLVideoElement | null>(null)
+const playerSeeking = ref(false)
 const commentsVideo = ref<FeedVideo | null>(null)
 const muted = ref(true)
 const followed = ref(new Set<number>())
@@ -57,6 +60,7 @@ function clearPlaybackState() {
   observer?.disconnect()
   for (const video of videoElements.values()) video.pause()
   videoElements.clear()
+  activeVideoElement.value = null
   for (const key of Object.keys(playing)) delete playing[Number(key)]
   for (const key of Object.keys(mediaLoading)) delete mediaLoading[Number(key)]
   for (const key of Object.keys(mediaError)) delete mediaError[Number(key)]
@@ -140,11 +144,13 @@ function bindVideo(element: unknown, id: number) {
   const previous = videoElements.get(id)
   if (previous && previous !== element) observer?.unobserve(previous)
   if (!(element instanceof HTMLVideoElement)) {
+    if (activeVideoElement.value === previous) activeVideoElement.value = null
     videoElements.delete(id)
     return
   }
   element.muted = muted.value
   videoElements.set(id, element)
+  if (activeVideo.value?.id === id) activeVideoElement.value = element
   observer?.observe(element)
 }
 
@@ -174,6 +180,7 @@ async function playActive() {
   }
   const video = videoElements.get(item.id)
   if (!video) return
+  activeVideoElement.value = video
   video.muted = muted.value
   mediaError[item.id] = ''
   try {
@@ -390,6 +397,7 @@ onUnmounted(() => {
   document.removeEventListener('visibilitychange', onVisibilityChange)
   pauseAll()
   videoElements.clear()
+  activeVideoElement.value = null
 })
 </script>
 
@@ -411,7 +419,7 @@ onUnmounted(() => {
       <p>{{ mode === 'following' ? '关注创作者后，他们的新作品会出现在这里' : '稍后再来看看新的内容' }}</p>
     </div>
 
-    <article v-for="(item, index) in items" v-else :key="item.id" class="video-card" :aria-label="`视频：${item.title}`">
+    <article v-for="(item, index) in items" v-else :key="item.id" class="video-card" :class="{ seeking: activeIndex === index && playerSeeking }" :aria-label="`视频：${item.title}`">
       <video
         :ref="(element) => bindVideo(element, item.id)"
         :data-index="index"
@@ -453,6 +461,7 @@ onUnmounted(() => {
       >
         <AppIcon name="play" :size="42" filled />
       </button>
+      <VideoControls v-if="activeIndex === index" :video="activeVideoElement" @seeking-change="playerSeeking = $event" />
 
       <section class="copy">
         <button class="author-name" type="button" @click.stop="router.push(`/user/${item.author.id}`)">{{ item.author.username }}</button>
@@ -669,6 +678,8 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; backgrou
   filter: none;
 }
 .author .follow-mark.followed { background: #f4f4f5; color: #18181b; font-size: 10px; }
+.video-card.seeking .copy,.video-card.seeking .actions { opacity:0; pointer-events:none; }
+.copy,.actions { transition:opacity 140ms ease; }
 .feed-progress {
   position: absolute;
   z-index: 4;

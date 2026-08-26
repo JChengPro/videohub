@@ -6,6 +6,7 @@ import { api } from '../api'
 import type { FeedVideo, Video } from '../api/types'
 import AppIcon from '../components/AppIcon.vue'
 import CommentsSheet from '../components/CommentsSheet.vue'
+import VideoControls from '../components/VideoControls.vue'
 import { useAuthStore } from '../stores/auth'
 import { useToastStore } from '../stores/toast'
 
@@ -15,6 +16,9 @@ const auth = useAuthStore()
 const toast = useToastStore()
 
 const videoElement = ref<HTMLVideoElement | null>(null)
+const playerSeeking = ref(false)
+const paused = ref(true)
+const muted = ref(true)
 const video = ref<Video | null>(null)
 const loading = ref(false)
 const error = ref('')
@@ -45,6 +49,7 @@ async function load() {
   video.value = null
   liked.value = false
   commentsOpen.value = false
+  paused.value = true
   error.value = ''
 
   if (!Number.isInteger(id.value) || id.value <= 0) {
@@ -67,13 +72,32 @@ async function load() {
     }
     await nextTick()
     if (request === requestId && !document.hidden) {
-      try { await videoElement.value?.play() } catch { /* Native controls remain available. */ }
+      try {
+        await videoElement.value?.play()
+        paused.value = false
+      } catch { paused.value = true }
     }
   } catch (cause) {
     if (request === requestId) error.value = cause instanceof Error ? cause.message : String(cause)
   } finally {
     if (request === requestId) loading.value = false
   }
+}
+
+async function togglePlay() {
+  const element = videoElement.value
+  if (!element) return
+  if (element.paused) {
+    try { await element.play(); paused.value = false } catch { paused.value = true }
+  } else {
+    element.pause()
+    paused.value = true
+  }
+}
+
+function toggleMute() {
+  muted.value = !muted.value
+  if (videoElement.value) videoElement.value.muted = muted.value
 }
 
 async function toggleLike() {
@@ -156,7 +180,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <main class="detail">
+  <main class="detail" :class="{ seeking: playerSeeking }">
     <header class="detail-bar">
       <button class="back" type="button" aria-label="返回上一页" @click="router.back()"><AppIcon name="back" /></button>
       <strong>视频详情</strong>
@@ -175,18 +199,22 @@ onUnmounted(() => {
     </section>
 
     <template v-else-if="video">
-      <div class="player">
+      <div class="player" :class="{ seeking: playerSeeking }">
         <video
           ref="videoElement"
           :src="video.play_url"
           :poster="video.cover_url"
-          controls
           autoplay
-          muted
+          :muted="muted"
           playsinline
           preload="metadata"
+          @click="togglePlay"
+          @playing="paused = false"
+          @pause="paused = true"
         />
-        <span class="sound-tip">默认静音，可在播放器中开启声音</span>
+        <button v-if="paused" class="play-indicator" type="button" aria-label="播放视频" @click.stop="togglePlay"><AppIcon name="play" :size="34" filled /></button>
+        <VideoControls :video="videoElement" @seeking-change="playerSeeking = $event" />
+        <button class="sound-tip" type="button" :aria-label="muted ? '开启声音' : '关闭声音'" @click.stop="toggleMute"><AppIcon :name="muted ? 'volume-off' : 'volume'" :size="18" /></button>
       </div>
 
       <section class="info">
@@ -266,8 +294,12 @@ onUnmounted(() => {
   background: rgba(0, 0, 0, .58);
   color: rgba(255, 255, 255, .66);
   font-size: 9px;
-  pointer-events: none;
+  display: grid;
+  place-items: center;
 }
+
+.play-indicator { position:absolute; z-index:7; top:50%; left:50%; width:62px; height:62px; transform:translate(-50%,-50%); display:grid; place-items:center; border:1px solid rgba(255,255,255,.15); border-radius:50%; background:rgba(0,0,0,.42); color:#fff; backdrop-filter:blur(10px); }
+
 
 .info {
   padding: 18px 16px;
@@ -416,7 +448,9 @@ onUnmounted(() => {
   height: 100dvh;
   object-fit: contain;
 }
-.sound-tip { z-index: 2; right: 12px; bottom: 14px; }
+.sound-tip { z-index:7; top:calc(58px + env(safe-area-inset-top)); right:12px; bottom:auto; width:36px; height:36px; padding:0; border-radius:50%; color:#fff; }
+.detail.seeking .info,.detail.seeking .info-actions,.detail.seeking .sound-tip,.detail.seeking .detail-bar { opacity:0; pointer-events:none; }
+.info,.info-actions,.sound-tip,.detail-bar { transition:opacity 140ms ease; }
 .info {
   position: absolute;
   z-index: 3;

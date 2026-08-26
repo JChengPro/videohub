@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
 import AppIcon from '../components/AppIcon.vue'
 import UserAvatar from '../components/UserAvatar.vue'
+import VideoControls from '../components/VideoControls.vue'
 import { ApiError } from '../api/client'
 import * as commentApi from '../api/comment'
 import * as feedApi from '../api/feed'
@@ -75,6 +76,8 @@ const paused = ref(false)
 const mediaLoading = ref(false)
 const playbackError = ref('')
 const activeIndex = ref(0)
+const activeVideoElement = ref<HTMLVideoElement | null>(null)
+const playerSeeking = ref(false)
 const videoMap = new Map<number, HTMLVideoElement>()
 let resumeAfterVisibility = false
 let resumeAfterDrawer = false
@@ -101,7 +104,9 @@ function setVideoRef(id: number, el: HTMLVideoElement | null) {
   if (el) {
     el.muted = muted.value
     videoMap.set(id, el)
+    if (activeItem.value?.id === id) activeVideoElement.value = el
   } else {
+    if (activeVideoElement.value === videoMap.get(id)) activeVideoElement.value = null
     videoMap.delete(id)
   }
 }
@@ -143,6 +148,7 @@ async function playActive() {
   }
   const video = videoMap.get(item.id)
   if (!video) return
+  activeVideoElement.value = video
   video.muted = muted.value
   playbackError.value = ''
   try {
@@ -537,6 +543,7 @@ watch(
   () => tab.value,
   async () => {
     activeIndex.value = 0
+    activeVideoElement.value = null
     videoMap.clear()
     if (scroller.value) scroller.value.scrollTop = 0
     await ensureTabLoaded()
@@ -593,6 +600,7 @@ onBeforeUnmount(() => {
   if (scrollRaf) window.cancelAnimationFrame(scrollRaf)
   for (const video of videoMap.values()) video.pause()
   videoMap.clear()
+  activeVideoElement.value = null
 })
 </script>
 
@@ -656,7 +664,7 @@ onBeforeUnmount(() => {
           v-for="(item, idx) in filteredItems"
           :key="`${tab}-${item.id}`"
           class="slide"
-          :class="{ active: idx === activeIndex }"
+          :class="{ active: idx === activeIndex, seeking: idx === activeIndex && playerSeeking }"
         >
           <div class="stage" @dblclick.prevent="toggleLike(item)">
             <video
@@ -686,6 +694,7 @@ onBeforeUnmount(() => {
             <button v-if="idx === activeIndex && paused && !mediaLoading && !playbackError" class="pause-indicator" type="button" aria-label="继续播放" @click.stop="togglePlayPause">
               <AppIcon name="play" :size="29" />
             </button>
+            <VideoControls v-if="idx === activeIndex" :video="activeVideoElement" @seeking-change="playerSeeking = $event" />
 
             <div class="meta">
               <RouterLink class="author-link" :to="`/u/${item.author.id}`" @click.stop>
@@ -901,13 +910,13 @@ onBeforeUnmount(() => {
   position: absolute; inset: 0; pointer-events: none;
   background: linear-gradient(to top, rgba(0,0,0,0.75), transparent 55%);
 }
-.meta { position: absolute; z-index: 2; left: 18px; bottom: 20px; max-width: min(600px, calc(100% - 90px)); }
+.meta { position: absolute; z-index: 2; left: 18px; bottom: 62px; max-width: min(600px, calc(100% - 90px)); }
 .author-link { display: inline-flex; align-items: center; gap: 8px; font-weight: 800; margin-bottom: 4px; }
 .author-name { text-shadow: 0 10px 20px rgba(0,0,0,0.6); font-weight: 900; }
 .title { max-width: 720px; overflow: hidden; display: -webkit-box; font-size: clamp(20px,2.5vw,38px); font-weight: 900; margin-bottom: 6px; text-shadow: 0 10px 30px rgba(0,0,0,0.6); -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .desc { max-width: 680px; overflow: hidden; display: -webkit-box; color: rgba(255,255,255,0.74); font-size: 13px; line-height: 1.55; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 
-.actions { position: absolute; z-index: 2; right: 14px; bottom: 20px; display: grid; gap: 10px; }
+.actions { position: absolute; z-index: 2; right: 14px; bottom: 62px; display: grid; gap: 10px; }
 .act {
   width: 64px; min-height: 60px; border-radius: 18px; border: 1px solid rgba(255,255,255,0.14);
   background: rgba(0,0,0,0.5); backdrop-filter: blur(10px);
@@ -928,6 +937,8 @@ onBeforeUnmount(() => {
   font-size: 11px; font-weight: 700; backdrop-filter: blur(10px);
 }
 .hint-pill span { color: var(--accent); }
+.slide.seeking .meta,.slide.seeking .actions,.slide.seeking .hint { opacity:0; pointer-events:none; }
+.meta,.actions,.hint { transition:opacity 140ms ease; }
 
 .drawer-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.62); backdrop-filter: blur(9px); z-index: 120; display: grid; justify-items: end; }
 .drawer {
@@ -995,8 +1006,8 @@ onBeforeUnmount(() => {
   .top-chip { padding: 6px 9px; font-size: 11px; }
   .stage { height: calc(100dvh - 56px - 52px - 62px - env(safe-area-inset-bottom) - 24px); }
   .hint { display: none; }
-  .meta { left: 14px; bottom: 16px; }
-  .actions { right: 10px; bottom: 14px; }
+  .meta { left: 14px; bottom: 60px; }
+  .actions { right: 10px; bottom: 60px; }
 }
 
 /* TikTok-inspired focus layout: one narrow stage and a quiet action rail. */
@@ -1025,11 +1036,11 @@ onBeforeUnmount(() => {
   .video,
   .grad { border-radius: 14px; }
   .grad { background: linear-gradient(to top, rgba(0,0,0,.82), transparent 48%); }
-  .meta { left: 20px; right: auto; bottom: 20px; max-width: min(760px, calc(100% - 112px)); }
+  .meta { left: 20px; right: auto; bottom: 62px; max-width: min(760px, calc(100% - 112px)); }
   .author-link { margin-bottom: 5px; font-size: 14px; }
   .title { max-width: 100%; margin-bottom: 6px; font-size: clamp(22px, 2.2vw, 34px); line-height: 1.16; letter-spacing: -.025em; }
   .desc { max-width: 100%; color: rgba(255,255,255,.8); font-size: 12px; }
-  .actions { right: 14px; bottom: 18px; gap: 10px; }
+  .actions { right: 14px; bottom: 62px; gap: 10px; }
   .act {
     width: 58px;
     min-height: 58px;
