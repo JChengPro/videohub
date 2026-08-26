@@ -52,7 +52,7 @@ function uploadVideoWithProgress(file: File, onProgress?: (pct: number) => void)
       let data: unknown = null
       try { data = xhr.responseText ? JSON.parse(xhr.responseText) : null }
       catch { data = xhr.responseText }
-      if (xhr.status === 401) auth.clearToken()
+      if (xhr.status === 401) auth.handleUnauthorized(data)
       if (xhr.status < 200 || xhr.status >= 300) {
         const message = data && typeof data === 'object' && 'error' in data && typeof data.error === 'string'
           ? data.error
@@ -99,6 +99,11 @@ async function uploadOneChunk(
   })
   if (!res.ok) {
     const text = await res.text()
+    if (res.status === 401) {
+      let payload: unknown = null
+      try { payload = text ? JSON.parse(text) : null } catch { payload = text }
+      auth.handleUnauthorized(payload)
+    }
     throw new Error(text || `chunk ${chunkIndex} upload failed`)
   }
 }

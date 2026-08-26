@@ -12,12 +12,26 @@ const router = useRouter()
 const busy = ref(false)
 const stage = ref('')
 const uploadProgress = ref(0)
+const processingProgress = ref(0)
 const previewError = ref(false)
 const videoInput = ref<HTMLInputElement | null>(null)
 const form = reactive({ title: '', description: '', video: null as File | null, cover: null as File | null })
 const videoPreview = ref('')
 const coverPreview = ref('')
 const canPublish = computed(() => Boolean(form.title.trim() && form.video && form.cover && !busy.value))
+const totalProgress = computed(() => {
+  if (stage.value === '上传封面') return 5
+  if (stage.value === '上传视频') return 5 + Math.round(uploadProgress.value * .55)
+  if (stage.value === '提交处理任务') return 62
+  if (busy.value) return 62 + Math.round(processingProgress.value * .38)
+  return 0
+})
+const progressCopy = computed(() => {
+  if (stage.value === '上传视频') return `${uploadProgress.value}%`
+  if (stage.value === '上传封面') return '准备中'
+  if (stage.value === '提交处理任务') return '正在排队'
+  return `${processingProgress.value}%`
+})
 const videoMeta = computed(() => {
   if (!form.video) return ''
   const size = form.video.size / 1024 / 1024
@@ -59,11 +73,54 @@ function choose(event: Event, type: 'video' | 'cover') {
   form[type] = file
 }
 
+function processingStageLabel(stageName: string) {
+  const labels: Record<string, string> = {
+    queued: '等待媒体处理',
+    retrying: '正在重试处理',
+    downloading: '读取原始视频',
+    probing: '校验视频信息',
+    transcoding: '转换标准视频',
+    generating_covers: '生成候选封面',
+    uploading: '保存处理结果',
+    completed: '处理完成',
+  }
+  return labels[stageName] ?? '正在处理视频'
+}
+
+function sleep(milliseconds: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
+}
+
+async function waitForProcessing(videoID: number) {
+  const deadline = Date.now() + 30 * 60 * 1000
+  let consecutiveFailures = 0
+  while (Date.now() < deadline) {
+    let status
+    try {
+      status = await api.processingStatus(videoID)
+      consecutiveFailures = 0
+    } catch (cause) {
+      consecutiveFailures += 1
+      if (consecutiveFailures >= 3) throw cause
+      await sleep(1500)
+      continue
+    }
+
+    processingProgress.value = Math.max(0, Math.min(100, status.progress))
+    stage.value = processingStageLabel(status.stage)
+    if (status.status === 'published') return
+    if (status.status === 'failed') throw new Error(status.error || '视频处理失败，请重新上传')
+    await sleep(1500)
+  }
+  throw new Error('视频仍在后台处理中，请稍后到个人主页查看')
+}
+
 async function publish() {
   if (!auth.isLoggedIn) return router.push('/me')
   if (!canPublish.value || !form.video || !form.cover) return
   busy.value = true
   uploadProgress.value = 0
+  processingProgress.value = 0
   try {
     stage.value = '上传封面'
     const cover = await api.uploadCover(form.cover)
@@ -73,9 +130,9 @@ async function publish() {
     const playURL = video.url || video.play_url || ''
     const coverURL = cover.url || cover.cover_url || ''
     if (!playURL || !coverURL || !video.object_key || !cover.object_key) throw new Error('上传成功，但文件地址不完整，请重试')
-    stage.value = '发布作品'
+    stage.value = '提交处理任务'
     uploadProgress.value = 100
-    await api.publish({
+    const published = await api.publish({
       title: form.title.trim(),
       description: form.description.trim(),
       play_url: playURL,
@@ -83,13 +140,14 @@ async function publish() {
       play_object_key: video.object_key,
       cover_object_key: cover.object_key,
     })
+    await waitForProcessing(published.id)
     toast.success('作品已发布')
     busy.value = false
     stage.value = ''
     uploadProgress.value = 0
     await router.push('/')
   } catch (cause) { toast.error(cause instanceof Error ? cause.message : String(cause)) }
-  finally { busy.value = false; stage.value = ''; uploadProgress.value = 0 }
+  finally { busy.value = false; stage.value = ''; uploadProgress.value = 0; processingProgress.value = 0 }
 }
 </script>
 
@@ -121,10 +179,10 @@ async function publish() {
       </div>
       <p v-if="videoMeta" class="video-meta">{{ form.video?.name }}<span>{{ videoMeta }}</span></p>
 
-      <section v-if="busy" class="upload-progress" aria-live="polite" role="progressbar" aria-label="视频发布进度" :aria-valuenow="stage === '上传封面' ? 8 : stage === '发布作品' ? 100 : uploadProgress" aria-valuemin="0" aria-valuemax="100">
-        <div><b>{{ stage }}</b><span>{{ stage === '上传视频' ? `${uploadProgress}%` : stage === '发布作品' ? '即将完成' : '准备中' }}</span></div>
-        <i><span :style="{ width: `${stage === '上传封面' ? 8 : stage === '发布作品' ? 100 : uploadProgress}%` }" /></i>
-        <p>请保持页面打开，上传过程中不要退出。</p>
+      <section v-if="busy" class="upload-progress" aria-live="polite" role="progressbar" aria-label="视频发布进度" :aria-valuenow="totalProgress" aria-valuemin="0" aria-valuemax="100">
+        <div><b>{{ stage }}</b><span>{{ progressCopy }}</span></div>
+        <i><span :style="{ width: `${totalProgress}%` }" /></i>
+        <p>{{ totalProgress < 62 ? '请保持页面打开，上传过程中不要退出。' : '上传已完成，正在生成可播放版本。' }}</p>
       </section>
 
       <section class="form-card">

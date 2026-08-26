@@ -36,10 +36,19 @@ func tokenCacheKey(accountID uint) string {
 	return fmt.Sprintf("account:%d", accountID)
 }
 
-func setAuthContext(c *gin.Context, accountRepo *account.Repository, cacheClient *cache.Client, tokenString string) bool {
+type authStatus uint8
+
+const (
+	authStatusInvalid authStatus = iota
+	authStatusValid
+	authStatusReplaced
+	authStatusRevoked
+)
+
+func setAuthContext(c *gin.Context, accountRepo *account.Repository, cacheClient *cache.Client, tokenString string) authStatus {
 	claims, err := auth.ParseToken(tokenString)
 	if err != nil {
-		return false
+		return authStatusInvalid
 	}
 
 	if cacheClient != nil {
@@ -52,15 +61,24 @@ func setAuthContext(c *gin.Context, accountRepo *account.Repository, cacheClient
 				c.Set("accountID", claims.AccountID)
 				c.Set("accountName", claims.AccountName)
 				c.Set("username", claims.Username)
-				return true
+				return authStatusValid
 			}
-			return false
+			if cachedToken == "" {
+				return authStatusRevoked
+			}
+			return authStatusReplaced
 		}
 	}
 
 	accountInfo, err := accountRepo.FindByID(c.Request.Context(), claims.AccountID)
-	if err != nil || accountInfo.Token == "" || accountInfo.Token != tokenString {
-		return false
+	if err != nil {
+		return authStatusInvalid
+	}
+	if accountInfo.Token == "" {
+		return authStatusRevoked
+	}
+	if accountInfo.Token != tokenString {
+		return authStatusReplaced
 	}
 
 	if cacheClient != nil {
@@ -72,7 +90,7 @@ func setAuthContext(c *gin.Context, accountRepo *account.Repository, cacheClient
 	c.Set("accountID", claims.AccountID)
 	c.Set("accountName", claims.AccountName)
 	c.Set("username", claims.Username)
-	return true
+	return authStatusValid
 }
 
 // 强鉴权：没 token / token 非法 都直接拦截
@@ -84,12 +102,28 @@ func JWTAuth(accountRepo *account.Repository, cacheClient *cache.Client) gin.Han
 			return
 		}
 
-		if !setAuthContext(c, accountRepo, cacheClient, tokenString) {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
+		switch setAuthContext(c, accountRepo, cacheClient, tokenString) {
+		case authStatusValid:
+			c.Next()
+		case authStatusReplaced:
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"code":  "SESSION_REPLACED",
+				"error": "account signed in on another device",
+			})
+		case authStatusRevoked:
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"code":  "SESSION_REVOKED",
+				"error": "session has been revoked",
+			})
+		default:
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"code":  "TOKEN_INVALID",
+				"error": "invalid or expired token",
+			})
+		}
+		if c.IsAborted() {
 			return
 		}
-
-		c.Next()
 	}
 }
 

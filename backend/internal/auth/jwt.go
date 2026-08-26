@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"os"
 	"time"
 
@@ -25,12 +27,17 @@ func jwtSecret() []byte {
 
 func GenerateToken(accountID uint, accountName string, username string) (string, error) {
 	now := time.Now()
+	identifier := make([]byte, 16)
+	if _, err := rand.Read(identifier); err != nil {
+		return "", err
+	}
 
 	claims := Claims{
 		AccountID:   accountID,
 		AccountName: accountName,
 		Username:    username,
 		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        hex.EncodeToString(identifier),
 			ExpiresAt: jwt.NewNumericDate(now.Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),

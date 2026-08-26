@@ -12,7 +12,7 @@ export class ApiError extends Error {
   }
 }
 
-type ApiErrorBody = { error?: string }
+type ApiErrorBody = { error?: string; code?: string }
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/api'
 
@@ -54,8 +54,8 @@ export async function postJson<T>(path: string, body: unknown, options?: { authR
   }
 
   if (!res.ok) {
-    if (res.status === 401) {
-      auth.clearToken()
+    if (res.status === 401 && options?.authRequired) {
+      auth.handleUnauthorized(data)
     }
     const msg = errorMessageFromResponse(res.status, data)
     throw new ApiError(msg, res.status, data)
@@ -92,8 +92,8 @@ export async function postForm<T>(path: string, body: FormData, options?: { auth
   }
 
   if (!res.ok) {
-    if (res.status === 401) {
-      auth.clearToken()
+    if (res.status === 401 && options?.authRequired) {
+      auth.handleUnauthorized(data)
     }
     const msg = errorMessageFromResponse(res.status, data)
     throw new ApiError(msg, res.status, data)

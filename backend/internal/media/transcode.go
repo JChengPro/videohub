@@ -52,7 +52,7 @@ func Transcode(ctx context.Context, inputPath, outputPath string, durationMillis
 		"-map", "0:a:0?",
 		"-vf", scaleFilter,
 		"-c:v", "libx264",
-		"-preset", "medium",
+		"-preset", "veryfast",
 		"-crf", "23",
 		"-pix_fmt", "yuv420p",
 		"-c:a", "aac",

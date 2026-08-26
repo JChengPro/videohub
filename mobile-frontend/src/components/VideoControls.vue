@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
-const props = defineProps<{ video: HTMLVideoElement | null }>()
+const props = withDefaults(defineProps<{
+  video: HTMLVideoElement | null
+  bottomOffset?: string
+}>(), {
+  bottomOffset: '0px',
+})
 const emit = defineEmits<{ seekingChange: [value: boolean] }>()
 const root = ref<HTMLElement | null>(null)
 const currentTime = ref(0)
@@ -134,12 +139,12 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="root" class="player-controls" :class="{ visible: chromeVisible || menuOpen || seeking, seeking }" @pointerdown="reveal" @click.stop @dblclick.stop>
+  <div ref="root" class="player-controls" :class="{ visible: chromeVisible || menuOpen || seeking, seeking }" :style="{ bottom: bottomOffset }" @pointerdown="reveal" @click.stop @dblclick.stop>
     <div v-if="seeking" class="seek-time">{{ formatTime(currentTime) }} <span>/ {{ formatTime(duration) }}</span></div>
     <div class="control-row">
       <span>{{ formatTime(currentTime) }} / {{ formatTime(duration) }}</span>
       <div class="settings">
-        <button class="speed-trigger" type="button" aria-haspopup="menu" :aria-expanded="menuOpen" @click="toggleMenu">{{ playbackRate }}×</button>
+        <button class="speed-trigger" type="button" aria-haspopup="menu" :aria-expanded="menuOpen" @click="toggleMenu">{{ quality }} · {{ playbackRate }}×</button>
         <div v-if="menuOpen" class="settings-menu" role="menu">
           <div class="quality-row"><span>画质</span><b>{{ quality }}</b></div>
           <div class="menu-divider" />
@@ -154,10 +159,10 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .player-controls { position:absolute; z-index:6; right:0; bottom:0; left:0; height:48px; color:#fff; }
-.control-row { position:absolute; right:9px; bottom:14px; left:9px; display:flex; align-items:center; justify-content:space-between; color:rgba(255,255,255,.78); font-size:9px; font-weight:700; font-variant-numeric:tabular-nums; opacity:0; transform:translateY(4px); transition:opacity 140ms ease,transform 140ms ease; pointer-events:none; text-shadow:0 1px 4px #000; }
-.visible .control-row { opacity:1; transform:none; pointer-events:auto; }
+.control-row { position:absolute; right:9px; bottom:14px; left:9px; display:flex; align-items:center; justify-content:space-between; color:rgba(255,255,255,.7); font-size:9px; font-weight:700; font-variant-numeric:tabular-nums; opacity:.72; transition:opacity 140ms ease,transform 140ms ease; pointer-events:auto; text-shadow:0 1px 4px #000; }
+.visible .control-row { opacity:1; transform:none; }
 .settings { position:relative; }
-.speed-trigger { min-width:34px; height:26px; padding:0 6px; border:0; border-radius:4px; background:rgba(0,0,0,.46); color:#fff; font-size:10px; font-weight:850; backdrop-filter:blur(8px); }
+.speed-trigger { min-width:72px; height:26px; padding:0 7px; border:0; border-radius:4px; background:rgba(0,0,0,.46); color:#fff; font-size:9px; font-weight:850; white-space:nowrap; backdrop-filter:blur(8px); }
 .settings-menu { position:absolute; right:0; bottom:32px; width:140px; padding:7px; border:1px solid rgba(255,255,255,.1); border-radius:8px; background:rgba(27,27,30,.97); box-shadow:0 12px 34px rgba(0,0,0,.5); backdrop-filter:blur(16px); }
 .settings-menu button,.quality-row { width:100%; min-height:34px; padding:0 8px; display:flex; align-items:center; gap:8px; border:0; border-radius:5px; background:transparent; color:rgba(255,255,255,.88); font-size:11px; text-align:left; }
 .settings-menu i { width:6px; height:6px; border-radius:50%; }

@@ -12,6 +12,7 @@ import type {
   SearchUsersResponse,
   TokenResponse,
   Video,
+  VideoProcessingStatus,
 } from './types'
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/api'
@@ -54,7 +55,7 @@ async function request<T>(path: string, body: unknown, authRequired = false): Pr
   const text = await response.text()
   const data = parseResponse(text)
   if (!response.ok) {
-    if (response.status === 401) auth.clearToken()
+    if (response.status === 401 && authRequired) auth.handleUnauthorized(data)
     throw new ApiError(responseError(data, response.status, `请求失败 (${response.status})`), response.status, data)
   }
   return data as T
@@ -69,7 +70,7 @@ async function formRequest<T>(path: string, form: FormData): Promise<T> {
     body: form,
   })
   const data = parseResponse(await response.text())
-  if (response.status === 401) auth.clearToken()
+  if (response.status === 401) auth.handleUnauthorized(data)
   if (!response.ok) throw new ApiError(responseError(data, response.status, `请求失败 (${response.status})`), response.status, data)
   return data as T
 }
@@ -90,7 +91,7 @@ function xhrUpload<T>(path: string, body: FormData | Blob, headers: Record<strin
     xhr.onabort = () => reject(new ApiError('上传已取消'))
     xhr.onload = () => {
       const data = parseResponse(xhr.responseText)
-      if (xhr.status === 401) auth.clearToken()
+      if (xhr.status === 401) auth.handleUnauthorized(data)
       if (xhr.status < 200 || xhr.status >= 300) {
         reject(new ApiError(responseError(data, xhr.status, `上传失败 (${xhr.status})`), xhr.status, data))
         return
@@ -244,4 +245,5 @@ export const api = {
   },
   uploadVideo: uploadVideoSmart,
   publish: (body: PublishVideoInput) => request<Video>('/video/publish', body, true),
+  processingStatus: (id: number) => request<VideoProcessingStatus>('/video/processingStatus', { id }, true),
 }

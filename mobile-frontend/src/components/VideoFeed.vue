@@ -461,7 +461,12 @@ onUnmounted(() => {
       >
         <AppIcon name="play" :size="42" filled />
       </button>
-      <VideoControls v-if="activeIndex === index" :video="activeVideoElement" @seeking-change="playerSeeking = $event" />
+      <VideoControls
+        v-if="activeIndex === index"
+        :video="activeVideoElement"
+        bottom-offset="calc(58px + env(safe-area-inset-bottom))"
+        @seeking-change="playerSeeking = $event"
+      />
 
       <section class="copy">
         <button class="author-name" type="button" @click.stop="router.push(`/user/${item.author.id}`)">{{ item.author.username }}</button>
@@ -725,14 +730,14 @@ video { width: 100%; height: 100%; display: block; object-fit: contain; backgrou
 
 .copy {
   right: 74px;
-  bottom: calc(68px + env(safe-area-inset-bottom));
+  bottom: calc(108px + env(safe-area-inset-bottom));
   left: 13px;
 }
 .author-name { font-size: 14px; }
 .video-title { font-size: 13px; }
 .actions {
   right: 5px;
-  bottom: calc(64px + env(safe-area-inset-bottom));
+  bottom: calc(104px + env(safe-area-inset-bottom));
   gap: 7px;
 }
 .actions > button,

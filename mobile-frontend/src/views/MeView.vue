@@ -340,10 +340,10 @@ watch(
           <div class="settings-account">
             <button class="avatar-editor" type="button" :disabled="busy" aria-label="更换头像" @click="selectAvatar">
               <Avatar :name="username" :id="auth.claims?.account_id" :size="64" :version="avatarVersion" />
-              <span><AppIcon name="plus" :size="14" /></span>
+              <span class="avatar-edit-badge"><AppIcon name="plus" :size="14" /></span>
             </button>
             <input ref="avatarInput" class="avatar-input" type="file" accept="image/jpeg,image/png,image/webp" @change="uploadAvatar" />
-            <div><strong>{{ username }}</strong><span>@{{ accountName }} · 点击头像更换</span></div>
+            <div class="settings-account-copy"><strong>{{ username }}</strong><span>@{{ accountName }} · 点击头像更换</span></div>
           </div>
           <p class="settings-label">账号资料</p>
           <div class="account-name-row"><div><b>账号名</b><span>@{{ accountName }}</span></div><small>唯一账号</small></div>
@@ -386,8 +386,8 @@ watch(
 .settings-header h2 { font-size: 15px; text-align: center; }
 .settings-header button { width: 44px; height: 44px; display: grid; place-items: center; color: var(--mobile-text); }
 .settings-account { min-height: 104px; padding: 20px 2px; display: flex; align-items: center; gap: 14px; border-bottom: 1px solid var(--mobile-border); }
-.settings-account > div { min-width: 0; }.settings-account strong,.settings-account span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.settings-account strong { font-size: 15px; }.settings-account span { margin-top: 5px; color: var(--mobile-text-muted); font-size: 10px; }
-.avatar-editor { position: relative; flex: 0 0 auto; }.avatar-editor > span { position: absolute; right: -1px; bottom: -1px; width: 23px; height: 23px; display: grid; place-items: center; border: 2px solid var(--mobile-surface); border-radius: 50%; background: #fe2c55; color: #fff; }.avatar-input { display: none; }
+.settings-account-copy { min-width: 0; }.settings-account-copy strong,.settings-account-copy span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.settings-account-copy strong { font-size: 15px; }.settings-account-copy span { margin-top: 5px; color: var(--mobile-text-muted); font-size: 10px; }
+.avatar-editor { position: relative; width: 64px; height: 64px; flex: 0 0 64px; display: block; }.avatar-edit-badge { position: absolute; right: -1px; bottom: -1px; width: 23px; height: 23px; display: grid; place-items: center; border: 2px solid var(--mobile-surface); border-radius: 50%; background: #fe2c55; color: #fff; }.avatar-input { display: none; }
 .settings-label { padding: 24px 2px 9px; color: var(--mobile-text-muted); font-size: 9px; font-weight: 800; letter-spacing: .12em; }
 .account-name-row { min-height: 64px; margin-bottom: 10px; padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; border-radius: 8px; background: var(--mobile-surface-raised); }.account-name-row b,.account-name-row span { display: block; }.account-name-row b { font-size: 12px; }.account-name-row span { margin-top: 4px; color: var(--mobile-text-muted); font-size: 10px; }.account-name-row small { padding: 5px 8px; border-radius: 999px; background: rgba(37,244,238,.08); color: #25f4ee; font-size: 8px; }
 .setting-block { padding: 17px 14px; display: grid; gap: 10px; border-radius: 8px; background: var(--mobile-surface-raised); }

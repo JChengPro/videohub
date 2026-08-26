@@ -38,6 +38,18 @@ export type PublishVideoInput = {
   cover_object_key: string
 }
 
+export type VideoProcessingStatus = {
+  video_id: number
+  status: 'processing' | 'published' | 'failed' | 'deleted'
+  stage: string
+  progress: number
+  attempts: number
+  error?: string
+  play_url?: string
+  cover_url?: string
+  candidate_cover_urls?: string[]
+}
+
 export type Comment = {
   id: number
   username: string
