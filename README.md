@@ -2,7 +2,7 @@
 
 VideoHub 是一个基于 Go 开发的视频内容社区，支持账号登录、视频上传与发布、点赞评论、关注关系、互动通知、WebSocket 私信、视频流浏览和热视频排行，并提供独立构建的桌面端与沉浸式手机端页面。
 
-项目采用 **API + Worker 双进程模型**：API 负责鉴权、限流和同步写入核心业务数据；Worker 负责 Outbox 消息投递、RabbitMQ 消费、热度更新、缓存维护和文件删除。视频文件默认保存在本地，也可以通过环境变量切换至阿里云 OSS 私有 Bucket。
+项目采用 **API + Worker 双进程模型**：API 负责鉴权、限流和同步写入核心业务数据；Worker 负责 Outbox 消息投递、RabbitMQ 消费、热度更新、缓存维护、视频媒体处理和文件清理。视频文件默认保存在本地，也可以通过环境变量切换至阿里云 OSS 私有 Bucket。
 
 > 当前项目已完成本地与 Docker 容器集成验证，适用于学习和作品展示，尚未进行真实生产环境的大规模上线。
 
@@ -17,6 +17,7 @@ VideoHub 是一个基于 Go 开发的视频内容社区，支持账号登录、�
 | 消息队列 | RabbitMQ |
 | 实时通信 | WebSocket、Redis Pub/Sub |
 | 文件存储 | 本地文件系统、阿里云 OSS 私有 Bucket |
+| 媒体处理 | ffprobe、FFmpeg、H.264、AAC、MP4 |
 | 并发控制 | MySQL 事务、行锁、singleflight |
 | 容器化 | Docker、Docker Compose |
 
@@ -26,14 +27,14 @@ VideoHub 是一个基于 Go 开发的视频内容社区，支持账号登录、�
 | --- | --- |
 | 账号 | 唯一账号名注册/登录、中文公开昵称、头像上传与动态默认头像、退出、修改密码、查询用户 |
 | 鉴权 | JWTAuth 强鉴权、SoftJWTAuth 软鉴权、token 主动撤销 |
-| 视频 | 上传封面、上传视频、分片上传、合并分片、发布、详情、作者视频、状态删除 |
+| 视频 | 普通/分片上传、ffprobe 校验、RabbitMQ 异步转码、最高 1080P 标准播放文件、三张候选封面、处理进度、封面选择、详情与状态删除 |
 | 视频流 | 最新视频流、关注视频流、点赞排行、热视频榜 |
 | 点赞 | 点赞、取消点赞、判断是否点赞、我的点赞列表 |
 | 评论 | 发表评论、删除评论、评论列表 |
 | 关注 | 关注、取消关注、粉丝列表、关注列表 |
 | 通知 | 点赞、评论、关注异步通知、未读数、标记已读、消息页面 |
 | 私信 | WebSocket 实时收发、会话请求、三条消息额度、接收者回复即接受、互关直聊、已读回执、拉黑、未读数 |
-| 客户端 | 桌面沉浸式播放、手机竖屏滑动、双端评论互动、响应式布局、自动设备分流 |
+| 客户端 | 桌面沉浸式播放、手机竖屏滑动、简洁进度条、拖动定位、0.5～2 倍速、实际画质信息、双端评论互动与自动设备分流 |
 | 工程能力 | Outbox、消费幂等、RabbitMQ Connection/Channel 隔离、独立通知队列、三级缓存、冷热分离、限流、Docker Compose |
 
 ## 双端客户端体验
@@ -44,6 +45,7 @@ VideoHub 是一个基于 Go 开发的视频内容社区，支持账号登录、�
 
 - 使用侧边导航、顶部搜索和居中视频舞台，兼容宽屏、普通桌面和小屏桌面。
 - 推荐流和关注流支持自动播放、上下切换、播放暂停、静音切换、点赞、关注、评论和分享。
+- 播放器底部使用轻量进度线；鼠标交互时显示时间、滑块和倍速菜单，拖动时隐藏视频上的干扰信息。
 - 支持键盘操作：`↑` / `↓` 切换视频、`Space` 播放或暂停、`M` 切换声音、`C` 打开评论、`Esc` 关闭弹层。
 - 评论抽屉打开时暂停当前视频，关闭后只在视频原本处于播放状态时恢复。
 - 发布页面支持视频预览、封面预览、真实上传进度和大文件分片上传，并在上传期间阻止误离开页面。
@@ -55,7 +57,7 @@ VideoHub 是一个基于 Go 开发的视频内容社区，支持账号登录、�
 - 使用 `100dvh`、`safe-area-inset-top` 和 `safe-area-inset-bottom` 适配移动浏览器地址栏、刘海和底部安全区。
 - 推荐、关注和热门视频流采用一屏一个视频的纵向滚动吸附，只播放当前可见视频，快速滑动时自动暂停其他视频。
 - 页面进入后台时暂停视频，恢复页面后仅按之前的播放状态恢复当前视频。
-- 支持单击播放或暂停、双击点赞、长描述展开、静音切换、关注、评论、分享和游标分页。
+- 支持单击播放或暂停、双击点赞、长描述展开、静音切换、拖动播放进度、倍速播放、关注、评论、分享和游标分页。
 - 评论 Bottom Sheet 支持遮罩关闭、`Esc` 关闭、焦点管理、背景滚动锁定、评论发布和删除。
 - 消息未读数由 Pinia Store 统一维护；个人中心支持作品、喜欢、关注、粉丝、改名、改密码和删除作品。
 - 私信页面按移动端单列交互实现，支持实时消息、会话列表、已读回执和消息请求处理。
@@ -64,9 +66,10 @@ VideoHub 是一个基于 Go 开发的视频内容社区，支持账号登录、�
 ### 播放与格式说明
 
 - 为满足浏览器自动播放策略，视频默认静音播放。页面显示“开启声音”表示当前处于静音状态，点击后才会播放声音；有声时按钮显示“关闭声音”。
-- 当前支持上传 `MP4`、`MOV`、`M4V`、`WebM`、`3GP` 和 `3GPP`，视频最大 200 MB，封面支持 JPG、PNG、WebP，最大 10 MB。
+- 当前支持上传 `MP4`、`MOV`、`M4V`、`MKV`、`WebM`、`AVI`、`3GP`、`3GPP`、`FLV`、`WMV`、`MPEG` 和 `MPG`，视频最大 200 MB，封面支持 JPG、PNG、WebP，最大 10 MB。
 - 大于 10 MB 的视频自动按 5 MB 分片上传，小文件使用单次上传并展示真实网络进度。
-- 部分 iPhone 拍摄的 HEVC/MOV 文件可能可以上传，但当前浏览器无法直接预览或播放。跨设备稳定播放仍需要后续增加服务端转码。
+- 上传完成后不会直接公开原文件。Worker 使用 ffprobe 验证真实媒体内容，再由 FFmpeg 统一输出 `MP4 + H.264 + AAC`，最高 1080P、保持宽高比且不放大低分辨率视频。
+- 当前每个视频只生成一个标准播放文件，不提供多清晰度切换；播放器中的画质文字显示实际输出尺寸，不代表存在多个码率版本。
 
 ### 前端可靠性
 
@@ -94,7 +97,7 @@ Go API + WebSocket Hub
   |-- 参数校验 / JWT / Redis 限流
   |-- 同步写 MySQL 业务表
   |-- 同事务写 outbox_msgs
-  |-- 上传文件至 Local Storage / OSS
+  |-- 上传原始文件至 Local Storage / OSS
   |
   +----> Redis：token、缓存、时间线、热榜、实时事件 Pub/Sub
   |
@@ -107,6 +110,7 @@ Go API + WebSocket Hub
               v
             Worker
               |-- 消费幂等
+              |-- ffprobe 校验、FFmpeg 转码和候选封面生成
               |-- 更新热度和热榜
               |-- 维护视频时间线
               |-- 清理缓存和实际文件
@@ -136,7 +140,8 @@ Go API + WebSocket Hub
 
 | 事件 | 同步主链路 | Worker 后置任务 |
 | --- | --- | --- |
-| `video_published` | 写视频和 Outbox | 写 Redis 时间线、清理旧视频流缓存 |
+| `video_processing_requested` | 创建 processing 视频和 Outbox | 校验原文件、转码、生成封面、上传产物并更新状态 |
+| `video_published` | Media Worker 完成转码后写 Outbox | 写 Redis 时间线、清理旧视频流缓存 |
 | `video_deleted` | 视频状态改为 deleted、写 Outbox | 清理 Redis、删除本地或 OSS 文件 |
 | `like_created` / `like_deleted` | 修改点赞关系和点赞数、写 Outbox | 更新热度、同步热榜、删除详情缓存 |
 | `comment_published` / `comment_deleted` | 修改评论、写 Outbox | 更新热度、同步热榜 |
@@ -152,6 +157,7 @@ API RabbitMQ Connection
 
 Worker RabbitMQ Connection
 ├── Outbox Publisher Channel
+├── Media Consumer Channel
 ├── Video Consumer Channel
 ├── Like Consumer Channel
 ├── Comment Consumer Channel
@@ -160,9 +166,9 @@ Worker RabbitMQ Connection
 
 - `RabbitMQ` 只持有进程级 Connection，`AMQPChannel` 包装单一职责使用的 Channel。
 - Outbox Poller 在自己的 goroutine 内创建并长期持有 Publisher Channel。
-- 四个已启动的 Consumer 分别创建、消费和关闭自己的 Channel；单个 Channel 初始化失败只结束对应消费者，不会直接终止整个 Worker。
+- 五个已启动的 Consumer 分别创建、消费和关闭自己的 Channel；单个 Channel 初始化失败只结束对应消费者，不会直接终止整个 Worker。
 - `/mq` 测试接口按 HTTP 请求临时创建 Channel，并通过 `defer` 在请求结束后关闭；正常业务写入通过 Outbox 投递，不长期占用 API Channel。
-- Docker 实机验证中，Worker 稳定保持 5 条长期 Channel（1 条 Publisher、4 条 Consumer），API 无长期 Channel；HTTP 发布请求完成后 Channel 数量恢复，未发现泄漏。
+- Docker 实机验证中，Worker 稳定保持 6 条长期 Channel（1 条 Publisher、5 条 Consumer），API 无长期 Channel；HTTP 发布请求完成后 Channel 数量恢复，未发现泄漏。
 
 当前隔离解决的是多个并发角色共享同一 Channel 的生命周期和故障影响问题；自动重连、Publisher Confirm、QoS/prefetch、死信队列仍属于后续可靠性增强。
 
@@ -235,6 +241,7 @@ score  = popularity
 ```go
 type Storage interface {
     Upload(ctx context.Context, objectKey string, reader io.Reader) error
+    Open(ctx context.Context, objectKey string) (io.ReadCloser, error)
     Delete(ctx context.Context, objectKey string) error
     URL(ctx context.Context, objectKey string, expires time.Duration) (string, error)
 }
@@ -242,7 +249,30 @@ type Storage interface {
 
 默认使用本地存储；配置 OSS 环境变量后切换为阿里云 OSS。
 
-私有 OSS 的签名 URL 会过期，因此数据库只保存稳定的 `object_key`。查询视频时，后端根据 ObjectKey 生成新的临时签名 URL。视频被删除后，Worker 异步删除 OSS 或本地实际文件。
+私有 OSS 的签名 URL 会过期，因此数据库只保存稳定的 `object_key`。查询视频时，后端根据 ObjectKey 生成新的临时签名 URL。Media Worker 通过同一接口读取原始文件、上传标准播放文件和候选封面；处理成功后清理原始对象，视频删除后再异步删除长期媒体产物。
+
+### 异步媒体处理
+
+发布视频时，API 只创建 `processing` 记录并在同一事务写入 `video_processing_requested` Outbox，不在 HTTP 请求内执行耗时转码：
+
+```text
+上传/合并原始文件
+-> API 创建 processing 视频 + Outbox
+-> Outbox Poller 发布 feedsystem.video.processing.queue
+-> Media Worker 下载原文件并运行 ffprobe
+-> FFmpeg 输出 MP4 + H.264 + AAC（最高 1080P，不放大）
+-> 在视频 25% / 50% / 75% 位置生成三张候选封面
+-> 上传标准播放文件和封面
+-> 数据库 processing -> published，并写 video_published Outbox
+-> Redis 进度 completed=100
+-> 清理原始对象和本地临时目录
+```
+
+- ffprobe 读取视频/音频编码、容器、时长、宽高和旋转信息，并拒绝仅音频或损坏文件。
+- Redis 保存 `queued`、`downloading`、`probing`、`transcoding`、`generating_covers`、`uploading`、`completed`、`failed` 等阶段及百分比。
+- 临时错误最多执行 3 次有限重试；媒体本身无效时直接失败，不做无意义重试。
+- 输出 ObjectKey 按用户和视频 ID 固定生成，重复投递不会产生无限份媒体文件；只有所有产物上传及数据库更新完成后才发布视频。
+- 状态接口返回处理阶段、进度、尝试次数、错误、播放地址和候选封面；作者可通过封面选择接口确定最终封面。
 
 ### JWT 鉴权与 Redis 限流
 
@@ -316,14 +346,14 @@ docker compose down -v
 
 ### 升级已有环境
 
-从旧版升级到包含唯一账号名、头像和 WebSocket 私信的版本后，需要重新构建并启动容器：
+从旧版升级到包含唯一账号名、头像、WebSocket 私信和异步媒体处理的版本后，需要重新构建并启动容器：
 
 ```bash
 git pull
 docker compose up -d --build
 ```
 
-API 启动时会自动补齐账号字段，并创建私信会话、消息和拉黑关系表，无需手工执行 SQL。升级前签发的 JWT 不包含 `account_name`，如果页面账号名未正常显示，请退出后重新登录。
+API 启动时会通过 AutoMigrate 补齐账号、私信和视频媒体字段，无需手工执行 SQL。Worker 镜像已经包含 ffmpeg/ffprobe，必须重新构建 Worker 才能启用媒体处理。升级前签发的 JWT 不包含 `account_name`，如果页面账号名未正常显示，请退出后重新登录。
 
 ## 可选：启用阿里云 OSS
 
@@ -378,6 +408,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 │   ├── internal/account/              # 账号模块
 │   ├── internal/config/               # YAML 加载与环境变量覆盖
 │   ├── internal/feed/                 # 视频流、冷热分离、三级缓存
+│   ├── internal/media/                # ffprobe、FFmpeg 转码、进度解析和候选封面
 │   ├── internal/message/              # 私信会话、消息策略和已读状态
 │   ├── internal/middleware/           # JWTAuth / SoftJWTAuth
 │   ├── internal/mq/                   # RabbitMQ 和事件结构
@@ -387,7 +418,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 │   ├── internal/social/               # 关注模块
 │   ├── internal/storage/              # Local / OSS 存储实现
 │   ├── internal/video/                # 视频、点赞、评论、Outbox
-│   ├── internal/worker/               # Poller 和 MQ Consumer
+│   ├── internal/worker/               # Poller、Media Worker 和其他 MQ Consumer
 │   └── Dockerfile                     # API / Worker 多阶段构建
 ├── frontend/                          # Vue 3 桌面端前端
 │   └── src/                           # 框架、视频流、发布、消息、账号和详情页面
@@ -406,7 +437,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 | 模块 | 接口 |
 | --- | --- |
 | 账号 | `/account/register`、`/account/login`、`/account/checkAccountName`、`/account/findByID`、`/account/findByUsername`、`/account/search`、`/account/changePassword`、`/account/rename`、`/account/avatar`、`/account/avatar/:id`、`/account/me`、`/account/logout` |
-| 视频 | `/video/uploadCover`、`/video/uploadVideo`、`/video/uploadChunk`、`/video/chunkStatus`、`/video/mergeChunks`、`/video/publish`、`/video/getDetail`、`/video/listByAuthorID`、`/video/delete` |
+| 视频 | `/video/uploadCover`、`/video/uploadVideo`、`/video/uploadChunk`、`/video/chunkStatus`、`/video/mergeChunks`、`/video/publish`、`/video/processingStatus`、`/video/selectCover`、`/video/getDetail`、`/video/listByAuthorID`、`/video/delete` |
 | 视频流 | `/feed/listLatest`、`/feed/listByFollowing`、`/feed/listLikesCount`、`/feed/listByPopularity` |
 | 点赞 | `/like/like`、`/like/unlike`、`/like/isLiked`、`/like/listMyLikedVideos` |
 | 评论 | `/comment/publish`、`/comment/delete`、`/comment/listAll` |
@@ -472,7 +503,10 @@ npm run build
 - 手机端 `vue-tsc -b && vite build` 生产构建通过。
 - `docker compose config --quiet` 配置解析通过。
 - 本地 Docker 端到端流程已覆盖桌面端/手机端代理、WebSocket 连接、三条消息限额、会话接受、已读、互关、取消互关、拉黑和消息幂等。
-- RabbitMQ 实机验证确认 Worker 使用 1 个 Connection 和 5 条独立长期 Channel，API 的 HTTP 临时 Channel 会在请求结束后关闭。
+- ffprobe 解析、旋转尺寸、无视频流拒绝、FFmpeg 转码和候选封面生成均有自动化测试覆盖。
+- Docker 内真实媒体测试已验证输出为 `MP4 + H.264 + AAC`、最高 1080P、低分辨率不放大，并生成三张可读取的候选封面。
+- 媒体成功链路、无效媒体失败链路、处理进度、三次有限重试、幂等输出和原文件清理已完成验证。
+- RabbitMQ 实机验证确认 Worker 使用 1 个 Connection 和 6 条独立长期 Channel，API 的 HTTP 临时 Channel 会在请求结束后关闭。
 - 本地存储和阿里云私有 OSS 存储链路已验证。
 - OSS 文件上传、ObjectKey 发布、签名 URL 访问和异步删除链路已验证。
 
@@ -483,7 +517,8 @@ npm run build
 - 增加 Outbox 失败消息告警、指数退避、死信队列和重放接口。
 - 增加 RabbitMQ 自动重连、Publisher Confirm 和 Consumer QoS/prefetch。
 - 增加 OSS 孤儿对象定时清理、客户端直传和 CDN。
-- 增加视频转码与多码率输出，统一处理 HEVC、MOV 等移动设备视频编码。
+- 在现有单标准播放文件基础上按需要增加 HLS、多码率产物和 ABR 自适应播放。
+- 将媒体任务的即时有限重试升级为延迟重试、死信队列、人工重放和孤儿产物巡检。
 - 为两套前端增加 Playwright 端到端测试和移动设备视口回归。
 - 补充 Prometheus、Grafana、结构化日志和链路追踪。
 - 补充并发、故障场景的自动化单元测试与集成测试。
