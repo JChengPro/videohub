@@ -115,6 +115,11 @@ func (s *Service) ProcessingStatus(ctx context.Context, videoID, accountID uint)
 		response.Stage = "failed"
 		return response, nil
 	}
+	if target.Status == VideoStatusPendingReview || target.Status == VideoStatusRejected || target.Status == VideoStatusDeleted {
+		response.Stage = target.Status
+		response.Progress = 100
+		return response, nil
+	}
 
 	progress, progressErr := LoadProcessingProgress(ctx, s.cache, videoID)
 	if progressErr == nil && progress.VideoID != 0 {
@@ -149,6 +154,13 @@ func (s *Service) SelectCandidateCover(ctx context.Context, videoID, accountID u
 func (s *Service) Detail(ctx context.Context, id uint) (*Video, error) {
 	if id == 0 {
 		return nil, errors.New("video id is required")
+	}
+	visible, err := s.repo.ExistPublishedByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !visible {
+		return nil, errors.New("video not found")
 	}
 
 	cacheKey := fmt.Sprintf("video:detail:id=%d", id)
@@ -344,10 +356,7 @@ func (s *Service) MergeChunks(ctx context.Context, fileID string, fileExt string
 		return "", "", fmt.Errorf("upload merged file failed: %w", err)
 	}
 
-	playURL, err := s.fileStorage.URL(ctx, objectKey, time.Hour)
-	if err != nil {
-		return "", "", err
-	}
+	playURL := "/static/" + objectKey
 
 	_ = os.RemoveAll(chunkDir)
 	return playURL, objectKey, nil

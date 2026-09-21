@@ -29,6 +29,7 @@ const markAllBusy = ref(false)
 let requestId = 0
 
 function text(item: Notification) {
+  if (item.type === 'review') return item.content
   if (item.type === 'like') return '赞了你的视频'
   if (item.type === 'comment') return `评论了你的视频：${item.content}`
   return '关注了你'
@@ -105,7 +106,8 @@ async function open(item: Notification) {
       item.is_read = true
       notifications.readOne()
     }
-    if (item.target_type === 'video') await router.push(`/video/${item.target_id}`)
+    if (item.target_type === 'submission') await router.push(`/submissions/${item.target_id}`)
+    else if (item.target_type === 'video') await router.push(`/video/${item.target_id}`)
     else await router.push(`/user/${item.actor_id}`)
   } catch (cause) {
     toast.error(cause instanceof Error ? cause.message : String(cause))

@@ -1,6 +1,7 @@
 package account
 
 type Account struct {
+	Role            string `gorm:"size:16;not null;default:user" json:"-"`
 	ID              uint   `gorm:"primaryKey" json:"id"`
 	AccountName     string `gorm:"column:account_name;size:24;not null;uniqueIndex:idx_accounts_account_name" json:"account_name"`
 	Username        string `gorm:"size:24;not null" json:"username"`

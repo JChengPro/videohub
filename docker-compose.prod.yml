@@ -56,6 +56,7 @@ services:
     restart: always
     environment:
       GIN_MODE: release
+      ADMIN_SETUP_TOKEN: ${ADMIN_SETUP_TOKEN:-}
       JWT_SECRET: ${JWT_SECRET:-CHANGE_ME_use_a_long_random_jwt_secret}
       DB_HOST: mysql
       DB_PORT: 3306
@@ -151,6 +152,16 @@ services:
     depends_on:
       - frontend
       - mobile-frontend
+
+  admin-frontend:
+    build:
+      context: .
+      dockerfile: admin-frontend/Dockerfile
+    restart: always
+    ports:
+      - "127.0.0.1:${ADMIN_PORT:-5176}:80"
+    depends_on:
+      - backend
 
 volumes:
   mysql_data:

@@ -40,7 +40,7 @@ export type PublishVideoInput = {
 
 export type VideoProcessingStatus = {
   video_id: number
-  status: 'processing' | 'published' | 'failed' | 'deleted'
+  status: 'processing' | 'pending_review' | 'rejected' | 'published' | 'failed' | 'deleted'
   stage: string
   progress: number
   attempts: number
@@ -63,8 +63,8 @@ export type Notification = {
   id: number
   actor_id: number
   actor_username: string
-  type: 'like' | 'comment' | 'follow'
-  target_type: 'video' | 'account'
+  type: 'like' | 'comment' | 'follow' | 'review'
+  target_type: 'video' | 'account' | 'submission'
   target_id: number
   content: string
   is_read: boolean

@@ -41,7 +41,7 @@ const descriptionCount = computed(() => publishForm.description.length)
 const overallProgress = computed(() => {
   if (stage.value === '上传封面') return 8
   if (stage.value === '上传视频') return 8 + Math.round(videoProgress.value * 0.84)
-  if (stage.value === '发布视频') return 96
+  if (stage.value === '提交审核') return 96
   return 0
 })
 
@@ -201,7 +201,7 @@ async function onPublish() {
       return
     }
 
-    stage.value = '发布视频'
+    stage.value = '提交审核'
     const res = await videoApi.publishVideo({
       title,
       description,
@@ -212,7 +212,7 @@ async function onPublish() {
     })
 
     published.value = res
-    toast.success('已发布')
+    toast.success('投稿已提交，处理完成后进入审核')
 
     publishForm.title = ''
     publishForm.description = ''
@@ -433,10 +433,10 @@ async function onPublish() {
           <div v-if="published" class="side-card success-card">
             <span class="success-mark">✓</span>
             <div>
-              <strong>视频发布成功</strong>
+              <strong>投稿已提交</strong>
               <p>{{ published.title }}</p>
             </div>
-            <RouterLink :to="`/video/${published.id}`">查看作品</RouterLink>
+            <RouterLink :to="`/submissions/${published.id}`">查看审核进度</RouterLink>
           </div>
         </aside>
       </main>

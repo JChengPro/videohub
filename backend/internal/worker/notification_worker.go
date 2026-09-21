@@ -21,10 +21,10 @@ func NewNotificationWorker(repo *notification.Repository, cacheClient *cache.Cli
 }
 
 func (w *NotificationWorker) Handle(ctx context.Context, event mq.NotificationEvent) error {
-	if event.ReceiverID == 0 || event.ActorID == 0 || event.DedupKey == "" {
+	if event.ReceiverID == 0 || (event.ActorID == 0 && event.Type != "review") || event.DedupKey == "" {
 		return nil
 	}
-	if event.ReceiverID == event.ActorID {
+	if event.ReceiverID == event.ActorID && event.Type != "review" {
 		return nil
 	}
 

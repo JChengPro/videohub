@@ -3,10 +3,12 @@ package video
 import "time"
 
 const (
-	VideoStatusProcessing = "processing"
-	VideoStatusPublished  = "published"
-	VideoStatusDeleted    = "deleted"
-	VideoStatusFailed     = "failed"
+	VideoStatusProcessing    = "processing"
+	VideoStatusPendingReview = "pending_review"
+	VideoStatusRejected      = "rejected"
+	VideoStatusPublished     = "published"
+	VideoStatusDeleted       = "deleted"
+	VideoStatusFailed        = "failed"
 )
 
 type Video struct {
@@ -19,23 +21,32 @@ type Video struct {
 	CoverURL    string `gorm:"type:varchar(255);not null" json:"cover_url"`
 	// ObjectKey 是文件在本地存储或 OSS 中的稳定路径。
 	// 私有 OSS 的签名 URL 会过期，因此数据库需要保存 ObjectKey。
-	OriginalObjectKey  string    `gorm:"type:varchar(500);not null;default:''" json:"original_object_key"`
-	PlayObjectKey      string    `gorm:"type:varchar(500);not null;default:''" json:"play_object_key"`
-	CoverObjectKey     string    `gorm:"type:varchar(500);not null;default:''" json:"cover_object_key"`
-	CoverCandidates    []string  `gorm:"type:json;serializer:json" json:"cover_candidates,omitempty"`
-	VideoCodec         string    `gorm:"type:varchar(50);not null;default:''" json:"video_codec"`
-	AudioCodec         string    `gorm:"type:varchar(50);not null;default:''" json:"audio_codec"`
-	FormatName         string    `gorm:"type:varchar(100);not null;default:''" json:"format_name"`
-	Width              int       `gorm:"not null;default:0" json:"width"`
-	Height             int       `gorm:"not null;default:0" json:"height"`
-	DurationMillis     int64     `gorm:"not null;default:0" json:"duration_millis"`
-	ProcessingAttempts int       `gorm:"not null;default:0" json:"processing_attempts"`
-	ProcessingError    string    `gorm:"type:varchar(500);not null;default:''" json:"processing_error,omitempty"`
-	CreateTime         time.Time `gorm:"autoCreateTime" json:"create_time"`
-	LikesCount         int64     `gorm:"column:likes_count;not null;default:0" json:"likes_count"`
-	CommentsCount      int64     `gorm:"-" json:"comments_count"`
-	Popularity         int64     `gorm:"column:popularity;not null;default:0" json:"popularity"`
-	Status             string    `gorm:"type:varchar(20);not null;default:published;index" json:"status"`
+	OriginalObjectKey  string     `gorm:"type:varchar(500);not null;default:''" json:"original_object_key"`
+	PlayObjectKey      string     `gorm:"type:varchar(500);not null;default:''" json:"play_object_key"`
+	CoverObjectKey     string     `gorm:"type:varchar(500);not null;default:''" json:"cover_object_key"`
+	CoverCandidates    []string   `gorm:"type:json;serializer:json" json:"cover_candidates,omitempty"`
+	VideoCodec         string     `gorm:"type:varchar(50);not null;default:''" json:"video_codec"`
+	AudioCodec         string     `gorm:"type:varchar(50);not null;default:''" json:"audio_codec"`
+	FormatName         string     `gorm:"type:varchar(100);not null;default:''" json:"format_name"`
+	Width              int        `gorm:"not null;default:0" json:"width"`
+	Height             int        `gorm:"not null;default:0" json:"height"`
+	DurationMillis     int64      `gorm:"not null;default:0" json:"duration_millis"`
+	ProcessingAttempts int        `gorm:"not null;default:0" json:"processing_attempts"`
+	ProcessingError    string     `gorm:"type:varchar(500);not null;default:''" json:"processing_error,omitempty"`
+	CreateTime         time.Time  `gorm:"autoCreateTime" json:"create_time"`
+	LikesCount         int64      `gorm:"column:likes_count;not null;default:0" json:"likes_count"`
+	CommentsCount      int64      `gorm:"-" json:"comments_count"`
+	Popularity         int64      `gorm:"column:popularity;not null;default:0" json:"popularity"`
+	Status             string     `gorm:"type:varchar(20);not null;default:processing;index" json:"status"`
+	PublishedAt        *time.Time `gorm:"index" json:"published_at,omitempty"`
+	ReviewReason       string     `gorm:"size:500;not null;default:''" json:"review_reason,omitempty"`
+}
+
+func (v *Video) PublicationTime() time.Time {
+	if v.PublishedAt != nil {
+		return *v.PublishedAt
+	}
+	return v.CreateTime
 }
 
 // outbox表

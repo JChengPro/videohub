@@ -19,7 +19,7 @@ func (s *Service) List(ctx context.Context, receiverID uint, req ListRequest) (L
 		return ListResponse{}, errors.New("receiver_id is required")
 	}
 	req.Type = strings.TrimSpace(req.Type)
-	if req.Type != "" && req.Type != "like" && req.Type != "comment" && req.Type != "follow" {
+	if req.Type != "" && req.Type != "like" && req.Type != "comment" && req.Type != "follow" && req.Type != "review" {
 		return ListResponse{}, errors.New("invalid notification type")
 	}
 	if req.Limit <= 0 {

@@ -115,7 +115,7 @@ func (r *Repository) BeginProcessingAttempt(ctx context.Context, videoID uint, m
 	return &target, err
 }
 
-// CompleteProcessingWithOutbox publishes the processed media exactly once and emits the existing feed event.
+// CompleteProcessingWithOutbox finishes the media task without publishing it.
 func (r *Repository) CompleteProcessingWithOutbox(ctx context.Context, video *Video) (bool, error) {
 	completed := false
 	candidatesJSON, err := json.Marshal(video.CoverCandidates)
@@ -134,7 +134,7 @@ func (r *Repository) CompleteProcessingWithOutbox(ctx context.Context, video *Vi
 			"height":           video.Height,
 			"duration_millis":  video.DurationMillis,
 			"processing_error": "",
-			"status":           VideoStatusPublished,
+			"status":           VideoStatusPendingReview,
 		})
 		if result.Error != nil {
 			return result.Error
@@ -143,22 +143,7 @@ func (r *Repository) CompleteProcessingWithOutbox(ctx context.Context, video *Vi
 			return nil
 		}
 		completed = true
-		eventID := newEventID("video_published")
-		event := mq.VideoPublishedEvent{
-			EventID:        eventID,
-			EventType:      "video_published",
-			VideoID:        video.ID,
-			AuthorID:       video.AuthorID,
-			Title:          video.Title,
-			PlayObjectKey:  video.PlayObjectKey,
-			CoverObjectKey: video.CoverObjectKey,
-			CreateTime:     video.CreateTime.UnixMilli(),
-		}
-		msg, err := newOutboxMsg(mq.VideoPublishedQueueName, eventID, event, event.EventType, video.ID, video.AuthorID, video.Title)
-		if err != nil {
-			return err
-		}
-		return tx.Create(msg).Error
+		return nil
 	})
 	return completed, err
 }
@@ -196,16 +181,7 @@ func (r *Repository) ClearOriginalObjectKey(ctx context.Context, videoID uint, o
 }
 
 func (r *Repository) SelectCandidateCover(ctx context.Context, videoID, authorID uint, objectKey string) error {
-	result := r.db.WithContext(ctx).Model(&Video{}).
-		Where("id = ? AND author_id = ? AND status = ?", videoID, authorID, VideoStatusPublished).
-		Update("cover_object_key", objectKey)
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected == 0 {
-		return gorm.ErrRecordNotFound
-	}
-	return nil
+	return errors.New("提交后不能修改封面，请重新投稿")
 }
 
 func (r *Repository) DeleteWithOutbox(ctx context.Context, video *Video) error {
@@ -214,8 +190,11 @@ func (r *Repository) DeleteWithOutbox(ctx context.Context, video *Video) error {
 	}
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 使用状态删除保留视频记录，便于审计、恢复以及后续清理实际文件
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(video, video.ID).Error; err != nil {
+			return err
+		}
 		result := tx.Model(&Video{}).
-			Where("id = ? AND status = ?", video.ID, VideoStatusPublished).
+			Where("id = ? AND status <> ?", video.ID, VideoStatusDeleted).
 			Update("status", VideoStatusDeleted)
 
 		if result.Error != nil {
@@ -231,13 +210,14 @@ func (r *Repository) DeleteWithOutbox(ctx context.Context, video *Video) error {
 		eventID := newEventID("video_deleted")
 
 		event := mq.VideoPublishedEvent{
-			EventID:        eventID,
-			EventType:      "video_deleted",
-			VideoID:        video.ID,
-			AuthorID:       video.AuthorID,
-			Title:          video.Title,
-			PlayObjectKey:  video.PlayObjectKey,
-			CoverObjectKey: video.CoverObjectKey,
+			EventID:         eventID,
+			EventType:       "video_deleted",
+			ExtraObjectKeys: append(append([]string{}, video.CoverCandidates...), video.OriginalObjectKey),
+			VideoID:         video.ID,
+			AuthorID:        video.AuthorID,
+			Title:           video.Title,
+			PlayObjectKey:   video.PlayObjectKey,
+			CoverObjectKey:  video.CoverObjectKey,
 		}
 		msg, err := newOutboxMsg(mq.VideoPublishedQueueName, eventID, event, event.EventType, video.ID, video.AuthorID, video.Title)
 		if err != nil {

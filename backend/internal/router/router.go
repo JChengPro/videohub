@@ -4,8 +4,10 @@ import (
 	"backend/internal/account"
 	"backend/internal/cache"
 	"backend/internal/feed"
+	"backend/internal/mediagate"
 	"backend/internal/message"
 	"backend/internal/middleware"
+	"backend/internal/moderation"
 	"backend/internal/notification"
 	"backend/internal/ratelimit"
 	"backend/internal/realtime"
@@ -37,7 +39,32 @@ func New(
 	commentLimiter := ratelimit.Limit(redisClient, "comment_write", 10, time.Minute, ratelimit.KeyByAccount)
 	socialLimiter := ratelimit.Limit(redisClient, "social_write", 20, time.Minute, ratelimit.KeyByAccount)
 
-	r.Static("/static", "./.run/uploads")
+	mediaGate := mediagate.New(db, fileStorage)
+	r.GET("/static/*filepath", mediaGate.Static)
+	r.HEAD("/static/*filepath", mediaGate.Static)
+	r.GET("/media/preview", mediaGate.Preview)
+	r.HEAD("/media/preview", mediaGate.Preview)
+	moderator := moderation.NewHandler(db, mediaGate.PreviewURLs)
+	adminGroup := r.Group("/admin")
+	adminGroup.POST("/login", ratelimit.Limit(redisClient, "admin_login", 10, time.Minute, ratelimit.KeyByIp), moderator.Login)
+	adminGroup.POST("/setup/status", moderator.SetupStatus)
+	adminGroup.POST("/setup", ratelimit.Limit(redisClient, "admin_setup", 5, time.Minute, ratelimit.KeyByIp), moderator.Setup)
+	adminGroup.POST("/link/info", ratelimit.Limit(redisClient, "admin_link_info", 30, time.Minute, ratelimit.KeyByIp), moderator.LinkInfo)
+	adminGroup.POST("/link/accept", ratelimit.Limit(redisClient, "admin_link_accept", 10, time.Minute, ratelimit.KeyByIp), moderator.AcceptLink)
+	adminGroup.Use(moderator.Guard())
+	adminGroup.POST("/me", moderator.Me)
+	adminGroup.POST("/logout", moderator.Logout)
+	adminGroup.POST("/videos", moderator.List)
+	adminGroup.POST("/detail", moderator.Detail)
+	adminGroup.POST("/decide", moderator.Decide)
+	adminGroup.POST("/password", moderator.ChangePassword)
+	owners := adminGroup.Group("", moderator.OwnerGuard())
+	owners.POST("/members", moderator.Members)
+	owners.POST("/members/invite", moderator.Invite)
+	owners.POST("/members/update", moderator.UpdateMember)
+	owners.POST("/members/delete", moderator.DeleteMember)
+	owners.POST("/members/link", moderator.MemberLink)
+	owners.POST("/audit", moderator.AuditLog)
 	r.GET("/ping", func(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"message": "pong",
@@ -87,6 +114,8 @@ func New(
 		protectedVideoGroup.POST("/uploadCover", videoHandler.UploadCover)
 		protectedVideoGroup.POST("/uploadVideo", videoHandler.UploadVideo)
 		protectedVideoGroup.POST("/publish", videoHandler.Publish)
+		protectedVideoGroup.POST("/mine", mediaGate.Mine)
+		protectedVideoGroup.POST("/submission", mediaGate.Submission)
 		protectedVideoGroup.POST("/processingStatus", videoHandler.ProcessingStatus)
 		protectedVideoGroup.POST("/selectCover", videoHandler.SelectCover)
 		protectedVideoGroup.POST("/delete", videoHandler.Delete)

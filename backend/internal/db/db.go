@@ -4,6 +4,7 @@ import (
 	"backend/internal/account"
 	"backend/internal/config"
 	"backend/internal/message"
+	"backend/internal/moderation"
 	"backend/internal/notification"
 	"backend/internal/social"
 	"backend/internal/video"
@@ -32,7 +33,7 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := migrateNotifications(db); err != nil {
 		return err
 	}
-	return db.AutoMigrate(
+	if err := db.AutoMigrate(
 		&account.Account{},
 		&video.Video{},
 		&video.Like{},
@@ -44,7 +45,19 @@ func AutoMigrate(db *gorm.DB) error {
 		&message.Conversation{},
 		&message.Message{},
 		&message.Block{},
-	)
+		&moderation.AdminSession{},
+		&moderation.Review{},
+		&moderation.Staff{},
+		&moderation.StaffState{},
+		&moderation.StaffLink{},
+		&moderation.StaffAudit{},
+	); err != nil {
+		return err
+	}
+	if err := moderation.MigrateStaff(db); err != nil {
+		return err
+	}
+	return db.Model(&video.Video{}).Where("status = ? AND published_at IS NULL", video.VideoStatusPublished).Update("published_at", gorm.Expr("create_time")).Error
 }
 
 // migrateNotifications collapses legacy duplicate follow notifications before

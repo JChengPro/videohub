@@ -18,6 +18,7 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', name: 'home', component: HomeView },
+    { path: '/submissions/:id?', component: () => import('../views/SubmissionsView.vue'), meta: { requiresAuth: true } },
     { path: '/following', name: 'following', component: HomeView },
     { path: '/feed', redirect: '/' },
     { path: '/hot', name: 'hot', component: HotView },

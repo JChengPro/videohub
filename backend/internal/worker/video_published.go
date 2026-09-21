@@ -33,6 +33,13 @@ func (w *VideoWorker) HandleVideoPublished(ctx context.Context, event mq.VideoPu
 
 	// 实际文件删除不依赖 Redis，Redis 不可用时也必须继续执行。
 	if event.EventType == "video_deleted" && w.fileStorage != nil {
+		for _, key := range event.ExtraObjectKeys {
+			if key != "" {
+				if err := w.fileStorage.Delete(ctx, key); err != nil {
+					return err
+				}
+			}
+		}
 		if event.PlayObjectKey != "" {
 			if err := w.fileStorage.Delete(ctx, event.PlayObjectKey); err != nil {
 				return err
@@ -49,7 +56,7 @@ func (w *VideoWorker) HandleVideoPublished(ctx context.Context, event mq.VideoPu
 		return nil
 	}
 
-	timelineKey := "feed:global_timeline"
+	timelineKey := "feed:published_timeline:v2"
 	switch event.EventType {
 	case "video_published":
 		if event.CreateTime > 0 {

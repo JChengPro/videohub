@@ -46,7 +46,7 @@ func (s *OSSStorage) Upload(ctx context.Context, objectKey string, reader io.Rea
 		return err
 	}
 
-	return s.bucket.PutObject(objectKey, reader)
+	return s.bucket.PutObject(objectKey, reader, oss.ObjectACL(oss.ACLPrivate))
 }
 
 func (s *OSSStorage) Open(ctx context.Context, objectKey string) (io.ReadCloser, error) {

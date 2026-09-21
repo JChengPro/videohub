@@ -41,7 +41,7 @@ function responseError(data: unknown, status: number, fallback: string) {
   return fallback
 }
 
-async function request<T>(path: string, body: unknown, authRequired = false): Promise<T> {
+export async function request<T>(path: string, body: unknown, authRequired = false): Promise<T> {
   const auth = useAuthStore()
   if (authRequired && !auth.isLoggedIn) throw new ApiError('请先登录', 401)
   const response = await fetch(`${API_BASE}${path}`, {

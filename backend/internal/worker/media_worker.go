@@ -48,7 +48,7 @@ func (w *MediaWorker) Handle(ctx context.Context, event mq.VideoProcessingEvent)
 	}
 
 	// A redelivered message after the database commit only needs to finish original cleanup.
-	if target.Status == video.VideoStatusPublished {
+	if target.Status == video.VideoStatusPublished || target.Status == video.VideoStatusPendingReview || target.Status == video.VideoStatusRejected {
 		if err := w.cleanupOriginal(ctx, target); err != nil {
 			return true, err
 		}
@@ -162,6 +162,14 @@ func (w *MediaWorker) processAttempt(ctx context.Context, target *video.Video) e
 		return fmt.Errorf("complete media processing: %w", err)
 	}
 	if !completed {
+		current, readErr := w.repo.FindByID(ctx, target.ID)
+		if readErr != nil {
+			return readErr
+		}
+		if current.Status == video.VideoStatusDeleted {
+			w.cleanupGeneratedObjects(ctx, target)
+			return w.cleanupOriginal(ctx, target)
+		}
 		return nil
 	}
 	if err := video.SaveProcessingProgress(ctx, w.cache, target.ID, "completed", 100); err != nil {

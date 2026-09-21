@@ -1,7 +1,7 @@
 import { postJson } from './client'
 import type { MessageResponse } from './types'
 
-export type NotificationType = 'like' | 'comment' | 'follow'
+export type NotificationType = 'like' | 'comment' | 'follow' | 'review'
 
 export type Notification = {
   id: number
@@ -9,7 +9,7 @@ export type Notification = {
   actor_id: number
   actor_username: string
   type: NotificationType
-  target_type: 'video' | 'account'
+  target_type: 'video' | 'account' | 'submission'
   target_id: number
   content: string
   is_read: boolean

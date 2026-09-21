@@ -17,6 +17,16 @@ func NewRepository(db *gorm.DB) *Repository {
 	return &Repository{db: db}
 }
 
+func (r *Repository) PublishedIDs(ctx context.Context, ids []uint) (map[uint]bool, error) {
+	var found []uint
+	err := r.db.WithContext(ctx).Model(&video.Video{}).Where("id IN ? AND status = ?", ids, video.VideoStatusPublished).Pluck("id", &found).Error
+	result := make(map[uint]bool, len(found))
+	for _, id := range found {
+		result[id] = true
+	}
+	return result, err
+}
+
 // 不是传统的分页逻辑，而是给我某个时间点之前的最新 N 条数据
 func (r *Repository) ListLatest(ctx context.Context, limit int, latestBefore time.Time) ([]*video.Video, error) {
 	var videos []*video.Video
@@ -24,10 +34,10 @@ func (r *Repository) ListLatest(ctx context.Context, limit int, latestBefore tim
 	query := r.db.WithContext(ctx).
 		Model(&video.Video{}).
 		Where("status = ?", video.VideoStatusPublished).
-		Order("create_time DESC")
+		Order("published_at DESC")
 
 	if !latestBefore.IsZero() {
-		query = query.Where("create_time < ?", latestBefore)
+		query = query.Where("published_at < ?", latestBefore)
 	}
 
 	if err := query.Limit(limit).Find(&videos).Error; err != nil {
@@ -44,11 +54,11 @@ func (r *Repository) ListFollowing(ctx context.Context, accountID uint, limit in
 		Model(&video.Video{}).
 		Joins("JOIN socials ON socials.vlogger_id = videos.author_id").
 		Where("socials.follower_id = ? AND videos.status = ?", accountID, video.VideoStatusPublished).
-		Order("videos.create_time desc").
+		Order("videos.published_at desc").
 		Limit(limit)
 
 	if before > 0 {
-		query = query.Where("videos.create_time < FROM_UNIXTIME(? / 1000)", before)
+		query = query.Where("videos.published_at < FROM_UNIXTIME(? / 1000)", before)
 	}
 
 	if err := query.Find(&videos).Error; err != nil {

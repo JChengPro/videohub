@@ -29,8 +29,8 @@ func (r *Repository) List(ctx context.Context, receiverID uint, notificationType
 	var notifications []Notification
 	query := r.db.WithContext(ctx).
 		Model(&Notification{}).
-		Select("notifications.*, accounts.username AS actor_username").
-		Joins("LEFT JOIN accounts ON accounts.id = notifications.actor_id").
+		Select("notifications.*, CASE WHEN notifications.type = 'review' THEN '审核中心' ELSE accounts.username END AS actor_username").
+		Joins("LEFT JOIN accounts ON accounts.id = notifications.actor_id AND notifications.type <> 'review'").
 		Where("notifications.receiver_id = ?", receiverID).
 		Order("notifications.id DESC").
 		Limit(limit)

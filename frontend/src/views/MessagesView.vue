@@ -35,6 +35,7 @@ const filters: Array<{ key: Filter; label: string }> = [
   { key: 'like', label: '点赞' },
   { key: 'comment', label: '评论' },
   { key: 'follow', label: '关注' },
+  { key: 'review', label: '审核' },
 ]
 
 const emptyText = computed(() => {
@@ -43,6 +44,7 @@ const emptyText = computed(() => {
 })
 
 function messageTitle(item: Notification) {
+  if (item.type === 'review') return '作品审核结果'
   const actor = item.actor_username || `用户 #${item.actor_id}`
   if (item.type === 'like') return `${actor} 点赞了你的视频`
   if (item.type === 'comment') return `${actor} 评论了你的视频`
@@ -50,12 +52,14 @@ function messageTitle(item: Notification) {
 }
 
 function messageDetail(item: Notification) {
+  if (item.type === 'review') return item.content
   if (item.type === 'comment') return item.content
   if (item.type === 'like') return '你的作品获得了新的喜欢'
   return '你有了一位新的关注者'
 }
 
 function typeLabel(type: NotificationType) {
+  if (type === 'review') return '审'
   if (type === 'like') return '赞'
   if (type === 'comment') return '评'
   return '关'
@@ -131,7 +135,8 @@ async function openNotification(item: Notification) {
     }
   }
 
-  if (item.target_type === 'video') await router.push(`/video/${item.target_id}`)
+  if (item.target_type === 'submission') await router.push(`/submissions/${item.target_id}`)
+  else if (item.target_type === 'video') await router.push(`/video/${item.target_id}`)
   else await router.push(`/u/${item.actor_id}`)
 }
 

@@ -25,6 +25,7 @@ defineProps<{ name: string; size?: number; filled?: boolean }>()
     <template v-else-if="name === 'warning'"><path d="M10.3 3.6 2.2 18a2 2 0 0 0 1.8 3h16a2 2 0 0 0 1.8-3L13.7 3.6a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></template>
     <template v-else-if="name === 'video'"><rect x="3" y="5" width="14" height="14" rx="3"/><path d="m17 10 4-2v8l-4-2"/></template>
     <template v-else-if="name === 'search'"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></template>
+    <template v-else-if="name === 'refresh'"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M18.5 9A7 7 0 0 0 6.2 6.2L4 8m2 7a7 7 0 0 0 11.8 2.8L20 16"/></template>
     <template v-else-if="name === 'check'"><path d="m7 12 3 3 7-7"/><circle cx="12" cy="12" r="9"/></template>
   </svg>
 </template>

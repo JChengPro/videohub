@@ -343,7 +343,7 @@ watch(
               <h2>{{ videoTab === 'works' ? '我的作品' : '喜欢的视频' }}</h2>
               <p>{{ videoTab === 'works' ? '管理你发布的视频内容' : '浏览你点赞收藏的作品' }}</p>
             </div>
-            <RouterLink v-if="videoTab === 'works'" class="create-link" to="/video">+ 发布新作品</RouterLink>
+            <RouterLink v-if="videoTab === 'works'" class="create-link" to="/submissions">我的投稿与审核结果</RouterLink>
           </div>
 
         <template v-if="videoTab === 'works'">

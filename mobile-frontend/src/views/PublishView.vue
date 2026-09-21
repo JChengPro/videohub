@@ -73,48 +73,6 @@ function choose(event: Event, type: 'video' | 'cover') {
   form[type] = file
 }
 
-function processingStageLabel(stageName: string) {
-  const labels: Record<string, string> = {
-    queued: '等待媒体处理',
-    retrying: '正在重试处理',
-    downloading: '读取原始视频',
-    probing: '校验视频信息',
-    transcoding: '转换标准视频',
-    generating_covers: '生成候选封面',
-    uploading: '保存处理结果',
-    completed: '处理完成',
-  }
-  return labels[stageName] ?? '正在处理视频'
-}
-
-function sleep(milliseconds: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
-}
-
-async function waitForProcessing(videoID: number) {
-  const deadline = Date.now() + 30 * 60 * 1000
-  let consecutiveFailures = 0
-  while (Date.now() < deadline) {
-    let status
-    try {
-      status = await api.processingStatus(videoID)
-      consecutiveFailures = 0
-    } catch (cause) {
-      consecutiveFailures += 1
-      if (consecutiveFailures >= 3) throw cause
-      await sleep(1500)
-      continue
-    }
-
-    processingProgress.value = Math.max(0, Math.min(100, status.progress))
-    stage.value = processingStageLabel(status.stage)
-    if (status.status === 'published') return
-    if (status.status === 'failed') throw new Error(status.error || '视频处理失败，请重新上传')
-    await sleep(1500)
-  }
-  throw new Error('视频仍在后台处理中，请稍后到个人主页查看')
-}
-
 async function publish() {
   if (!auth.isLoggedIn) return router.push('/me')
   if (!canPublish.value || !form.video || !form.cover) return
@@ -140,12 +98,11 @@ async function publish() {
       play_object_key: video.object_key,
       cover_object_key: cover.object_key,
     })
-    await waitForProcessing(published.id)
-    toast.success('作品已发布')
+    toast.success('投稿已提交，处理完成后进入审核')
     busy.value = false
     stage.value = ''
     uploadProgress.value = 0
-    await router.push('/')
+    await router.push(`/submissions/${published.id}`)
   } catch (cause) { toast.error(cause instanceof Error ? cause.message : String(cause)) }
   finally { busy.value = false; stage.value = ''; uploadProgress.value = 0; processingProgress.value = 0 }
 }

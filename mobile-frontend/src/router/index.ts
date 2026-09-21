@@ -12,6 +12,7 @@ export default createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', component: FeedView },
+    { path: '/submissions/:id?', component: () => import('../views/SubmissionsView.vue') },
     { path: '/following', component: FeedView },
     { path: '/hot', component: FeedView },
     { path: '/publish', component: PublishView },

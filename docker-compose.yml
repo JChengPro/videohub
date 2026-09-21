@@ -60,6 +60,7 @@ services:
       target: api
     restart: always
     environment:
+      ADMIN_SETUP_TOKEN: ${ADMIN_SETUP_TOKEN:-}
       STORAGE_TYPE: ${STORAGE_TYPE:-local}
       OSS_ENDPOINT: ${OSS_ENDPOINT:-}
       OSS_REGION: ${OSS_REGION:-}
@@ -120,6 +121,16 @@ services:
     restart: always
     ports:
       - "5174:80"
+    depends_on:
+      - backend
+
+  admin-frontend:
+    build:
+      context: .
+      dockerfile: admin-frontend/Dockerfile
+    restart: always
+    ports:
+      - "${ADMIN_PORT:-5176}:80"
     depends_on:
       - backend
 

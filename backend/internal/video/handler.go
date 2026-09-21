@@ -101,12 +101,7 @@ func (h *Handler) UploadCover(c *gin.Context) {
 		return
 	}
 
-	// 私有 OSS 返回临时签名 URL，本地存储返回静态文件地址。
-	coverURL, err := h.fileStorage.URL(c.Request.Context(), objectKey, 15*time.Minute)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
+	coverURL := "/static/" + objectKey
 
 	c.JSON(http.StatusOK, gin.H{
 		"cover_url":  coverURL,
@@ -167,11 +162,7 @@ func (h *Handler) UploadVideo(c *gin.Context) {
 		return
 	}
 
-	playURL, err := h.fileStorage.URL(c.Request.Context(), objectKey, time.Hour)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
+	playURL := "/static/" + objectKey
 
 	c.JSON(http.StatusOK, gin.H{
 		"play_url":   playURL,

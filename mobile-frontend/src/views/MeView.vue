@@ -318,6 +318,7 @@ watch(
     <template v-else>
       <header class="profile-head"><button class="settings" type="button" aria-label="账号设置" @click="openSettings"><AppIcon name="settings" /></button><Avatar :name="username" :id="auth.claims?.account_id" :size="82" :version="avatarVersion" /><h1>{{ username }}</h1><small>@{{ accountName || 'loading' }}</small><button class="logout" type="button" @click="logout">退出登录</button></header>
       <div v-if="profileLoading" class="profile-loading" role="status">正在加载个人资料...</div>
+      <RouterLink class="submission-link" to="/submissions" style="display:block;padding:16px;text-align:center;color:#77d8b4">我的投稿与审核结果</RouterLink>
       <nav class="stats">
         <button type="button" @click="selectTab('following')"><b>{{ stats.following }}</b><span>关注</span></button>
         <button type="button" @click="selectTab('followers')"><b>{{ stats.followers }}</b><span>粉丝</span></button>

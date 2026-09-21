@@ -45,6 +45,18 @@ func (s *Service) GetVideoByIDs(ctx context.Context, videoIDs []uint) ([]*video.
 	if len(videoIDs) == 0 {
 		return []*video.Video{}, nil
 	}
+	// Visibility is authoritative in MySQL even when an old entity is cached.
+	visible, err := s.repo.PublishedIDs(ctx, videoIDs)
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]uint, 0, len(videoIDs))
+	for _, id := range videoIDs {
+		if visible[id] {
+			filtered = append(filtered, id)
+		}
+	}
+	videoIDs = filtered
 
 	videoMap := make(map[uint]*video.Video, len(videoIDs))
 	missedL1 := make([]uint, 0, len(videoIDs))
@@ -166,7 +178,7 @@ func (s *Service) listLatestFromDB(ctx context.Context, limit int, latestBefore 
 	videos := v.([]*video.Video)
 	var nextTime int64
 	if len(videos) > 0 {
-		nextTime = videos[len(videos)-1].CreateTime.UnixMilli()
+		nextTime = videos[len(videos)-1].PublicationTime().UnixMilli()
 	}
 	return ListLatestResponse{
 		VideoList: s.toFeedVideoItems(ctx, videos, accountID),
@@ -187,7 +199,7 @@ func (s *Service) ListLatest(ctx context.Context, limit int, latestBefore time.T
 		return s.listLatestFromDB(ctx, limit, latestBefore, accountID)
 	}
 
-	zsetTail, err := s.cache.ZRangeWithScores(ctx, "feed:global_timeline", 0, 0)
+	zsetTail, err := s.cache.ZRangeWithScores(ctx, "feed:published_timeline:v2", 0, 0)
 	if err != nil {
 		return ListLatestResponse{}, err
 	}
@@ -207,11 +219,11 @@ func (s *Service) ListLatest(ctx context.Context, limit int, latestBefore time.T
 			zElements := make([]redis.Z, 0, len(dbVideos))
 			for _, vid := range dbVideos {
 				zElements = append(zElements, redis.Z{
-					Score:  float64(vid.CreateTime.UnixMilli()),
+					Score:  float64(vid.PublicationTime().UnixMilli()),
 					Member: fmt.Sprintf("%d", vid.ID),
 				})
 			}
-			return "SUCCESS", s.cache.ZAdd(bgCtx, "feed:global_timeline", zElements...)
+			return "SUCCESS", s.cache.ZAdd(bgCtx, "feed:published_timeline:v2", zElements...)
 		})
 		if err != nil {
 			return ListLatestResponse{}, err
@@ -244,7 +256,7 @@ func (s *Service) ListLatest(ctx context.Context, limit int, latestBefore time.T
 			maxScore = fmt.Sprintf("%d", reqTime-1)
 		}
 
-		videoIDsStr, err := s.cache.ZRevRangeByScore(ctx, "feed:global_timeline", maxScore, "-inf", 0, int64(limit))
+		videoIDsStr, err := s.cache.ZRevRangeByScore(ctx, "feed:published_timeline:v2", maxScore, "-inf", 0, int64(limit))
 		if err != nil {
 			return ListLatestResponse{}, err
 		}
@@ -268,7 +280,7 @@ func (s *Service) ListLatest(ctx context.Context, limit int, latestBefore time.T
 			remainLimit := limit - len(baseVideos)
 			var coldCursor time.Time
 			if len(baseVideos) > 0 {
-				coldCursor = baseVideos[len(baseVideos)-1].CreateTime
+				coldCursor = baseVideos[len(baseVideos)-1].PublicationTime()
 			} else {
 				coldCursor = latestBefore
 			}
@@ -285,7 +297,7 @@ func (s *Service) ListLatest(ctx context.Context, limit int, latestBefore time.T
 
 	var nextTime int64
 	if len(baseVideos) > 0 {
-		nextTime = baseVideos[len(baseVideos)-1].CreateTime.UnixMilli()
+		nextTime = baseVideos[len(baseVideos)-1].PublicationTime().UnixMilli()
 	}
 
 	return ListLatestResponse{
@@ -318,7 +330,7 @@ func (s *Service) ListFollowing(ctx context.Context, accountID uint, limit int, 
 
 	var nextTime int64
 	if len(videos) > 0 {
-		nextTime = videos[len(videos)-1].CreateTime.UnixMilli()
+		nextTime = videos[len(videos)-1].PublicationTime().UnixMilli()
 	}
 
 	return ListByFollowingResponse{
@@ -453,7 +465,7 @@ func (s *Service) toFeedVideoItems(ctx context.Context, videos []*video.Video, a
 			Description:   safeCopy.Description,
 			PlayURL:       safeCopy.PlayURL,
 			CoverURL:      safeCopy.CoverURL,
-			CreateTime:    safeCopy.CreateTime.UnixMilli(),
+			CreateTime:    safeCopy.PublicationTime().UnixMilli(),
 			LikesCount:    likesCount,
 			CommentsCount: commentCounts[safeCopy.ID],
 			IsLiked:       likedSet[safeCopy.ID],
