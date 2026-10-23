@@ -21,7 +21,7 @@ VideoHub 是一个基于 Go 的视频内容社区，覆盖视频投稿、异步�
 | 模块 | 功能 |
 | --- | --- |
 | 账号 | 注册登录、JWT 鉴权、退出失效、头像与资料管理 |
-| 视频投稿 | 普通上传、3 路并发分片、断点续传、异步转码、处理进度 |
+| 视频投稿 | 500 MiB 上限、3 路并发分片、断点续传、异步转码、处理进度 |
 | 审核发布 | 待审队列、私有预览、通过／驳回、审核记录与结果通知 |
 | 视频浏览 | 推荐流、关注流、点赞排行、热榜和游标分页 |
 | 社区互动 | 点赞、评论、关注、粉丝关系与个人作品 |
@@ -74,9 +74,11 @@ VideoHub 是一个基于 Go 的视频内容社区，覆盖视频投稿、异步�
 
 ### 上传与媒体处理
 
-- 大于 10 MB 的视频按 5 MB 分片，通过固定 3 路工作池并发上传。
-- 上传任务使用文件名、文件大小和最后修改时间生成稳定 ID；重新选择同一文件时只补传缺失分片。
-- 分片遇到网络错误、超时、限流或服务端错误时最多重试 3 次，服务端在合并前校验片号和完整文件大小。
+- 视频最大 500 MiB。大于 10 MiB 时按 10 MiB 分片，由固定 3 路工作池并发上传。
+- Local 模式将分片传给 API 并在共享卷合并；OSS 模式使用临时预签名 URL 从浏览器直传私有 Bucket，AccessKey 不进入前端。
+- 上传任务使用文件名、文件大小和最后修改时间生成稳定 ID；重新选择同一文件时查询服务端和 OSS 已完成 Part，只补传缺失 Part。
+- 单 Part 遇到网络错误、超时、限流或服务端错误时最多重试 3 次。OSS 完成前会校验 PartNumber、ETag、分片大小和完整文件大小。
+- OSS 上传超过 2 小时没有成功活动时，Worker 抢占任务并执行 Abort；多 Worker 通过条件更新避免重复清理。
 - Worker 使用 ffprobe 校验媒体内容，再由 FFmpeg 输出最高 1080P 的 `MP4 + H.264 + AAC` 标准播放文件。
 - 自定义封面为选填项；未提供时从视频开头附近生成一张默认封面。
 
@@ -162,11 +164,19 @@ docker compose up -d --build
 ```dotenv
 STORAGE_TYPE=oss
 OSS_ENDPOINT=https://oss-cn-shanghai.aliyuncs.com
+# ECS 与 Bucket 同地域时，服务端读写使用内网 Endpoint。
+OSS_INTERNAL_ENDPOINT=https://oss-cn-shanghai-internal.aliyuncs.com
+# 浏览器上传和播放签名 URL 必须使用公网 Endpoint。
+OSS_PUBLIC_ENDPOINT=https://oss-cn-shanghai.aliyuncs.com
 OSS_REGION=oss-cn-shanghai
 OSS_BUCKET_NAME=your-bucket-name
 OSS_ACCESS_KEY_ID=your-ram-access-key-id
 OSS_ACCESS_KEY_SECRET=your-ram-access-key-secret
 ```
+
+`OSS_ENDPOINT` 是兼容配置；未填写两个新 Endpoint 时，内外网请求都会回退使用它。只有 ECS 与 Bucket 同地域时才能使用内网 Endpoint。
+
+浏览器直传还需要在 OSS Bucket 配置 CORS：允许桌面端和手机端实际来源执行 `PUT`，允许请求头 `*`，并在暴露响应头中填写 `ETag`。否则文件可能已经上传成功，但浏览器无法读取 ETag，不能完成 Multipart 合并。
 
 建议使用仅拥有目标 Bucket 必要权限的 RAM 用户 AccessKey。`.env` 已被 Git 忽略，不要提交真实凭据。修改配置后重新创建 API 和 Worker：
 
@@ -246,6 +256,6 @@ npm run build
 ## 后续计划
 
 - 完善 RabbitMQ 自动重连、Publisher Confirm、QoS、死信队列和消息重放。
-- 增加 HLS、多码率转码、CDN 和 OSS 客户端直传。
+- 增加 HLS、多码率转码和 CDN。
 - 补充 Prometheus、Grafana、结构化日志和链路追踪。
 - 扩展并发与故障场景的自动化测试。

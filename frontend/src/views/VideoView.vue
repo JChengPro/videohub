@@ -16,7 +16,7 @@ const toast = useToastStore()
 const busy = ref(false)
 const stage = ref('')
 const published = ref<Video | null>(null)
-const maxVideoBytes = 200 * 1024 * 1024
+const maxVideoBytes = 500 * 1024 * 1024
 const maxCoverBytes = 10 * 1024 * 1024
 const videoProgress = ref(0)
 const draggingVideo = ref(false)
@@ -76,9 +76,16 @@ function onBeforeUnload(event: BeforeUnloadEvent) {
   event.returnValue = ''
 }
 
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener('beforeunload', onBeforeUnload)
   pendingUpload.value = videoApi.getPendingVideoUpload()
+  if (auth.isLoggedIn) {
+    try {
+      const { tasks } = await videoApi.listMultipartTasks()
+      const failed = tasks.find((task) => task.status === 'expired' || task.status === 'failed')
+      if (failed) toast.info(`${failed.file_name}：${failed.failure_reason || '上传任务未完成，请重新选择视频'}`)
+    } catch { /* Upload history must not block the publishing page. */ }
+  }
 })
 
 onBeforeRouteLeave(() => {
@@ -196,8 +203,21 @@ async function onPublish() {
 
     stage.value = '上传视频'
     videoProgress.value = 0
-    const videoRes = await videoApi.uploadVideoSmart(publishForm.video!, (pct) => { videoProgress.value = pct })
+    const videoRes = await videoApi.uploadVideoSmart(publishForm.video!, (pct) => { videoProgress.value = pct }, {
+      title,
+      description,
+      cover_object_key: coverRes.object_key || '',
+    })
     pendingUpload.value = null
+    if (videoRes.published_video) {
+      published.value = videoRes.published_video
+      toast.success('投稿已提交，处理完成后进入审核')
+      publishForm.title = ''
+      publishForm.description = ''
+      clearVideo()
+      clearCover()
+      return
+    }
 
     const coverUrl = coverRes.url || coverRes.cover_url || ''
     const playUrl = videoRes.url || videoRes.play_url || ''
@@ -293,7 +313,7 @@ async function onPublish() {
             <span class="upload-rules">
               <b>支持手机常见格式</b>
               <i />
-              <b>最大 200 MB</b>
+              <b>最大 500 MB</b>
               <i />
               <b>支持分片上传</b>
             </span>
@@ -419,7 +439,7 @@ async function onPublish() {
             <ul class="check-list">
               <li :class="{ ready: publishForm.video }">
                 <span>{{ publishForm.video ? '✓' : '1' }}</span>
-                <div><b>上传视频</b><small>MP4 / MOV / M4V / WebM / 3GP，最大 200 MB</small></div>
+                <div><b>上传视频</b><small>MP4 / MOV / M4V / WebM / 3GP，最大 500 MB</small></div>
               </li>
 			  <li class="ready">
 				<span>{{ publishForm.cover ? '✓' : '2' }}</span>

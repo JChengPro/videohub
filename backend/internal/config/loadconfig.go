@@ -24,11 +24,13 @@ type StorageConfig struct {
 }
 
 type OSSConfig struct {
-	Endpoint        string `yaml:"endpoint"`
-	Region          string `yaml:"region"`
-	BucketName      string `yaml:"bucket_name"`
-	AccessKeyID     string `yaml:"-"`
-	AccessKeySecret string `yaml:"-"`
+	Endpoint         string `yaml:"endpoint"`
+	InternalEndpoint string `yaml:"internal_endpoint"`
+	PublicEndpoint   string `yaml:"public_endpoint"`
+	Region           string `yaml:"region"`
+	BucketName       string `yaml:"bucket_name"`
+	AccessKeyID      string `yaml:"-"`
+	AccessKeySecret  string `yaml:"-"`
 }
 
 type ServerConfig struct {
@@ -186,11 +188,24 @@ func applyEnv(cfg *Config) {
 	if value := os.Getenv("STORAGE_TYPE"); value != "" {
 		cfg.Storage.Type = value
 	}
-	cfg.Storage.OSS.Endpoint = os.Getenv("OSS_ENDPOINT")
+	if value := os.Getenv("OSS_ENDPOINT"); value != "" {
+		cfg.Storage.OSS.Endpoint = value
+	}
+	cfg.Storage.OSS.InternalEndpoint = firstNonEmpty(os.Getenv("OSS_INTERNAL_ENDPOINT"), cfg.Storage.OSS.Endpoint)
+	cfg.Storage.OSS.PublicEndpoint = firstNonEmpty(os.Getenv("OSS_PUBLIC_ENDPOINT"), cfg.Storage.OSS.Endpoint)
 	cfg.Storage.OSS.Region = os.Getenv("OSS_REGION")
 	cfg.Storage.OSS.BucketName = os.Getenv("OSS_BUCKET_NAME")
 	cfg.Storage.OSS.AccessKeyID = os.Getenv("OSS_ACCESS_KEY_ID")
 	cfg.Storage.OSS.AccessKeySecret = os.Getenv("OSS_ACCESS_KEY_SECRET")
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func envInt(key string) int {

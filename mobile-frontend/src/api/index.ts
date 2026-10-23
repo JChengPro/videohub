@@ -37,7 +37,7 @@ function parseResponse(text: string): unknown {
 
 function responseError(data: unknown, status: number, fallback: string) {
   if (data && typeof data === 'object' && 'error' in data && typeof data.error === 'string' && data.error) return data.error
-  if (status === 413) return '上传文件太大，视频最大 200MB，封面最大 10MB'
+  if (status === 413) return '上传文件太大，视频最大 500MB，封面最大 10MB'
   return fallback
 }
 
@@ -111,7 +111,7 @@ async function uploadChunk(fileId: string, index: number, total: number, blob: B
   }, onProgress)
 }
 
-const CHUNK_SIZE = 5 * 1024 * 1024
+const CHUNK_SIZE = 10 * 1024 * 1024
 const CHUNK_THRESHOLD = 10 * 1024 * 1024
 const CHUNK_CONCURRENCY = 3
 const CHUNK_MAX_RETRIES = 3
@@ -123,6 +123,17 @@ export type PendingVideoUpload = {
   fileSize: number
   lastModified: number
   totalChunks: number
+}
+
+export type MultipartTask = {
+  id: string
+  file_name: string
+  status: 'uploading' | 'completing' | 'completed' | 'aborting' | 'expired' | 'failed'
+  failure_reason?: string
+}
+
+export function listMultipartTasks() {
+  return request<{ tasks: MultipartTask[] }>('/video/multipart/tasks', {}, true)
 }
 
 function uploadStorageKey() {
@@ -203,11 +214,22 @@ async function uploadChunkWithRetry(
   }
 }
 
-async function uploadVideoSmart(file: File, onProgress?: (progress: number) => void) {
+type VideoUploadResult = {
+  url?: string
+  play_url?: string
+  object_key?: string
+  published_video?: Video
+}
+
+async function uploadVideoSmart(
+  file: File,
+  onProgress?: (progress: number) => void,
+  publishInput?: Pick<PublishVideoInput, 'title' | 'description' | 'cover_object_key'>,
+): Promise<VideoUploadResult> {
   if (file.size <= CHUNK_THRESHOLD) {
     const form = new FormData()
     form.append('file', file)
-    return xhrUpload<{ url?: string; play_url?: string; object_key?: string }>('/video/uploadVideo', form, {}, onProgress)
+    return xhrUpload<VideoUploadResult>('/video/uploadVideo', form, {}, onProgress)
   }
 
   const total = Math.ceil(file.size / CHUNK_SIZE)
@@ -220,6 +242,25 @@ async function uploadVideoSmart(file: File, onProgress?: (progress: number) => v
     lastModified: file.lastModified,
     totalChunks: total,
   })
+
+  const init = await request<{
+    mode: 'local' | 'oss'
+    task_id?: string
+    uploaded_parts?: number[]
+  }>('/video/multipart/init', {
+    file_id: fileId,
+    file_name: file.name,
+    file_size: file.size,
+    total_parts: total,
+  }, true)
+
+  if (init.mode === 'oss') {
+    if (!init.task_id || !publishInput) throw new ApiError('OSS 分片任务缺少发布信息')
+    const published = await uploadVideoToOSS(file, init.task_id, init.uploaded_parts || [], onProgress, publishInput)
+    clearPendingVideoUpload(fileId)
+    onProgress?.(100)
+    return { published_video: published }
+  }
 
   const status = await request<{ uploaded: number[] }>('/video/chunkStatus', { file_id: fileId }, true)
   const uploaded = new Set((status.uploaded || []).filter((index) => Number.isInteger(index) && index >= 0 && index < total))
@@ -256,7 +297,7 @@ async function uploadVideoSmart(file: File, onProgress?: (progress: number) => v
   }
 
   await Promise.all(Array.from({ length: Math.min(CHUNK_CONCURRENCY, missing.length) }, () => worker()))
-  const result = await request<{ url?: string; play_url?: string; object_key?: string }>('/video/mergeChunks', {
+  const result = await request<VideoUploadResult>('/video/mergeChunks', {
     file_id: fileId,
     file_ext: fileExt,
     total_chunks: total,
@@ -265,6 +306,98 @@ async function uploadVideoSmart(file: File, onProgress?: (progress: number) => v
   clearPendingVideoUpload(fileId)
   onProgress?.(100)
   return result
+}
+
+function putOSSPart(url: string, blob: Blob, onProgress: (progress: number) => void): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('PUT', url)
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream')
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(Math.round(event.loaded / event.total * 100))
+    }
+    xhr.onerror = () => reject(new ApiError('OSS 分片网络上传失败', 0))
+    xhr.onabort = () => reject(new ApiError('OSS 分片上传已取消', 0))
+    xhr.onload = () => {
+      if (xhr.status < 200 || xhr.status >= 300) {
+        reject(new ApiError(`OSS 分片上传失败 (${xhr.status})`, xhr.status))
+        return
+      }
+      const etag = xhr.getResponseHeader('ETag')
+      if (!etag) {
+        reject(new ApiError('OSS 未暴露 ETag，请在 Bucket CORS 中暴露 ETag 响应头'))
+        return
+      }
+      onProgress(100)
+      resolve(etag)
+    }
+    xhr.send(blob)
+  })
+}
+
+async function uploadOSSPartWithRetry(taskId: string, partNumber: number, blob: Blob, onProgress: (progress: number) => void) {
+  for (let retry = 0; ; retry += 1) {
+    try {
+      const signed = await request<{ parts: Array<{ part_number: number; url: string }> }>('/video/multipart/signParts', {
+        task_id: taskId,
+        part_numbers: [partNumber],
+      }, true)
+      const url = signed.parts[0]?.url
+      if (!url) throw new ApiError('未获取到 OSS 分片上传地址')
+      const etag = await putOSSPart(url, blob, onProgress)
+      await request('/video/multipart/partCompleted', {
+        task_id: taskId,
+        part_number: partNumber,
+        etag,
+        size: blob.size,
+      }, true)
+      return
+    } catch (error) {
+      onProgress(0)
+      if (retry >= CHUNK_MAX_RETRIES || !isRetryableUploadError(error)) throw error
+      await wait(300 * (2 ** retry))
+    }
+  }
+}
+
+async function uploadVideoToOSS(
+  file: File,
+  taskId: string,
+  uploadedParts: number[],
+  onProgress: ((progress: number) => void) | undefined,
+  publishInput: Pick<PublishVideoInput, 'title' | 'description' | 'cover_object_key'>,
+): Promise<Video> {
+  const total = Math.ceil(file.size / CHUNK_SIZE)
+  const uploaded = new Set(uploadedParts.filter((part) => Number.isInteger(part) && part >= 1 && part <= total))
+  const missing = Array.from({ length: total }, (_, index) => index + 1).filter((part) => !uploaded.has(part))
+  const partSizeAt = (part: number) => Math.min(CHUNK_SIZE, file.size - (part - 1) * CHUNK_SIZE)
+  let completedBytes = Array.from(uploaded).reduce((sum, part) => sum + partSizeAt(part), 0)
+  const activeProgress = new Map<number, number>()
+  const report = () => {
+    const activeBytes = Array.from(activeProgress.entries()).reduce((sum, [part, progress]) => sum + partSizeAt(part) * progress / 100, 0)
+    onProgress?.(Math.min(99, Math.round((completedBytes + activeBytes) / file.size * 100)))
+  }
+  report()
+  let cursor = 0
+  const worker = async () => {
+    while (cursor < missing.length) {
+      const part = missing[cursor++]
+      if (part === undefined) return
+      const start = (part - 1) * CHUNK_SIZE
+      const blob = file.slice(start, Math.min(start + CHUNK_SIZE, file.size))
+      await uploadOSSPartWithRetry(taskId, part, blob, (progress) => { activeProgress.set(part, progress); report() })
+      activeProgress.delete(part)
+      completedBytes += blob.size
+      report()
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(CHUNK_CONCURRENCY, missing.length) }, () => worker()))
+  return request<Video>('/video/multipart/complete', {
+    task_id: taskId,
+    title: publishInput.title,
+    description: publishInput.description,
+    cover_object_key: publishInput.cover_object_key,
+  }, true)
 }
 
 export const VIDEO_ACCEPT = 'video/mp4,video/quicktime,video/x-m4v,video/webm,video/3gpp,.mp4,.mov,.m4v,.webm,.3gp,.3gpp'
@@ -365,6 +498,7 @@ export const api = {
     return formRequest<{ url?: string; cover_url?: string; object_key?: string }>('/video/uploadCover', form)
   },
   uploadVideo: uploadVideoSmart,
+  listMultipartTasks,
   publish: (body: PublishVideoInput) => request<Video>('/video/publish', body, true),
   processingStatus: (id: number) => request<VideoProcessingStatus>('/video/processingStatus', { id }, true),
 }

@@ -52,9 +52,16 @@ function onBeforeUnload(event: BeforeUnloadEvent) {
   event.returnValue = ''
 }
 
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener('beforeunload', onBeforeUnload)
   pendingUpload.value = getPendingVideoUpload()
+  if (auth.isLoggedIn) {
+    try {
+      const { tasks } = await api.listMultipartTasks()
+      const failed = tasks.find((task) => task.status === 'expired' || task.status === 'failed')
+      if (failed) toast.info(`${failed.file_name}：${failed.failure_reason || '上传任务未完成，请重新选择视频'}`)
+    } catch { /* Upload history must not block the publishing page. */ }
+  }
 })
 onBeforeRouteLeave(() => {
   if (!busy.value) return true
@@ -71,7 +78,7 @@ function choose(event: Event, type: 'video' | 'cover') {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0] ?? null
   input.value = ''
-  if (type === 'video' && file && (!isSupportedVideo(file) || file.size > 200 * 1024 * 1024)) return toast.error('支持 MP4、MOV、M4V、WebM、3GP，最大 200MB')
+  if (type === 'video' && file && (!isSupportedVideo(file) || file.size > 500 * 1024 * 1024)) return toast.error('支持 MP4、MOV、M4V、WebM、3GP，最大 500MB')
   if (type === 'cover' && file && !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) return toast.error('封面仅支持 JPG、PNG 或 WebP')
   if (type === 'cover' && file && file.size > 10 * 1024 * 1024) return toast.error('封面不能超过 10MB')
   form[type] = file
@@ -94,8 +101,17 @@ async function publish() {
 	}
     stage.value = '上传视频'
     uploadProgress.value = 0
-    const video = await api.uploadVideo(form.video, (progress) => { uploadProgress.value = progress })
+    const video = await api.uploadVideo(form.video, (progress) => { uploadProgress.value = progress }, {
+      title: form.title.trim(),
+      description: form.description.trim(),
+      cover_object_key: cover.object_key || '',
+    })
     pendingUpload.value = null
+    if (video.published_video) {
+      toast.success('投稿已提交，处理完成后进入审核')
+      await router.push(`/submissions/${video.published_video.id}`)
+      return
+    }
     const playURL = video.url || video.play_url || ''
     const coverURL = cover.url || cover.cover_url || ''
 	if (!playURL || !video.object_key) throw new Error('上传成功，但视频地址不完整，请重试')
@@ -146,7 +162,7 @@ async function publish() {
         <div v-else class="empty-video">
           <span><AppIcon name="plus" :size="30" /></span>
           <b>选择要发布的视频</b>
-          <p>支持手机拍摄视频，最大 200MB</p>
+          <p>支持手机拍摄视频，最大 500MB</p>
           <div class="format-strip"><i>MP4</i><i>MOV</i><i>M4V</i><i>WebM</i><i>3GP</i></div>
         </div>
         <button v-if="form.video" class="replace-video" type="button" @click="videoInput?.click()"><AppIcon name="plus" :size="14" /> 更换视频</button>

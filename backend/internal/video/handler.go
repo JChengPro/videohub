@@ -129,7 +129,7 @@ func (h *Handler) UploadVideo(c *gin.Context) {
 		return
 	}
 
-	const maxSize = 200 << 20
+	const maxSize = MaxVideoUploadSize
 	if f.Size <= 0 || f.Size > maxSize {
 		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "video file is too large"})
 		return
@@ -335,13 +335,13 @@ func (h *Handler) UploadChunk(c *gin.Context) {
 	}
 
 	// 读 Body 原始字节——前端发的是纯二进制 blob，不是 JSON
-	const maxChunkSize = 6 << 20
+	const maxChunkSize = MultipartPartSize + (1 << 20)
 	data, err := io.ReadAll(io.LimitReader(c.Request.Body, maxChunkSize+1))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if len(data) == 0 || len(data) > maxChunkSize {
+	if len(data) == 0 || int64(len(data)) > maxChunkSize {
 		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "invalid chunk size"})
 		return
 	}

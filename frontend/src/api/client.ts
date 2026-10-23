@@ -21,7 +21,7 @@ function errorMessageFromResponse(status: number, data: unknown) {
     return String((data as ApiErrorBody).error)
   }
   if (status === 413) {
-    return '上传文件太大，请压缩后再试（视频最大 200MB，封面最大 10MB）'
+    return '上传文件太大，请压缩后再试（视频最大 500MB，封面最大 10MB）'
   }
   return `请求失败 (${status})`
 }
