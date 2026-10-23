@@ -67,44 +67,137 @@ function uploadVideoWithProgress(file: File, onProgress?: (pct: number) => void)
   })
 }
 
-const CHUNK_SIZE = 5 * 1024 * 1024 // 5MB
-const CHUNK_THRESHOLD = 10 * 1024 * 1024 // 大于 10MB 的文件启用分片上传
+const CHUNK_SIZE = 5 * 1024 * 1024
+const CHUNK_THRESHOLD = 10 * 1024 * 1024
+const CHUNK_CONCURRENCY = 3
+const CHUNK_MAX_RETRIES = 3
+const PENDING_UPLOAD_KEY = 'videohub:pending-video-upload'
 
-function randHex(n: number): string {
-  const arr = new Uint8Array(n)
-  if (globalThis.crypto?.getRandomValues) {
-    globalThis.crypto.getRandomValues(arr)
-  } else {
-    for (let i = 0; i < arr.length; i++) arr[i] = Math.floor(Math.random() * 256)
+export type PendingVideoUpload = {
+  fileId: string
+  fileName: string
+  fileSize: number
+  lastModified: number
+  totalChunks: number
+}
+
+function uploadStorageKey() {
+  const accountId = useAuthStore().claims?.account_id
+  return accountId ? `${PENDING_UPLOAD_KEY}:${accountId}` : ''
+}
+
+export function getPendingVideoUpload(): PendingVideoUpload | null {
+  const key = uploadStorageKey()
+  if (!key) return null
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || 'null') as Partial<PendingVideoUpload> | null
+    if (!value || typeof value.fileId !== 'string' || typeof value.fileName !== 'string'
+      || typeof value.fileSize !== 'number' || typeof value.lastModified !== 'number'
+      || typeof value.totalChunks !== 'number') return null
+    return value as PendingVideoUpload
+  } catch {
+    return null
   }
-  return Array.from(arr, b => b.toString(16).padStart(2, '0')).join('')
+}
+
+function savePendingVideoUpload(task: PendingVideoUpload) {
+  const key = uploadStorageKey()
+  if (!key) return
+  try { localStorage.setItem(key, JSON.stringify(task)) } catch { /* Upload still works without local task hints. */ }
+}
+
+function clearPendingVideoUpload(fileId: string) {
+  const key = uploadStorageKey()
+  if (!key) return
+  try {
+    const task = getPendingVideoUpload()
+    if (task?.fileId === fileId) localStorage.removeItem(key)
+  } catch { /* Upload has already completed; stale hints are harmless. */ }
+}
+
+// A deterministic, non-cryptographic fingerprint avoids reading the whole video into memory.
+export function videoUploadId(file: Pick<File, 'name' | 'size' | 'lastModified'>): string {
+  const input = `${file.name}:${file.size}:${file.lastModified}`
+  const seeds = [0x811c9dc5, 0x9e3779b9, 0x85ebca6b, 0xc2b2ae35]
+  return seeds.map((seed) => {
+    let hash = seed >>> 0
+    for (let index = 0; index < input.length; index += 1) {
+      hash ^= input.charCodeAt(index)
+      hash = Math.imul(hash, 0x01000193) >>> 0
+    }
+    return hash.toString(16).padStart(8, '0')
+  }).join('')
 }
 
 async function uploadOneChunk(
-  fileId: string, chunkIndex: number, totalChunks: number, blob: Blob
+  fileId: string,
+  chunkIndex: number,
+  totalChunks: number,
+  blob: Blob,
+  onProgress?: (pct: number) => void,
 ): Promise<void> {
   const auth = useAuthStore()
   const token = auth.token
   const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/api'
 
-  const res = await fetch(`${API_BASE}/video/uploadChunk`, {
-    method: 'POST',
-    headers: {
-      'X-File-ID': fileId,
-      'X-Chunk-Index': String(chunkIndex),
-      'X-Total-Chunks': String(totalChunks),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: blob,
-  })
-  if (!res.ok) {
-    const text = await res.text()
-    if (res.status === 401) {
-      let payload: unknown = null
-      try { payload = text ? JSON.parse(text) : null } catch { payload = text }
-      auth.handleUnauthorized(payload)
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `${API_BASE}/video/uploadChunk`)
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+    xhr.setRequestHeader('X-File-ID', fileId)
+    xhr.setRequestHeader('X-Chunk-Index', String(chunkIndex))
+    xhr.setRequestHeader('X-Total-Chunks', String(totalChunks))
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress?.(Math.round((event.loaded / event.total) * 100))
     }
-    throw new Error(text || `chunk ${chunkIndex} upload failed`)
+    xhr.onerror = () => reject(new ApiError(`分片 ${chunkIndex + 1} 网络上传失败`, 0))
+    xhr.onabort = () => reject(new ApiError(`分片 ${chunkIndex + 1} 上传已取消`, 0))
+    xhr.onload = () => {
+      let payload: unknown = null
+      try { payload = xhr.responseText ? JSON.parse(xhr.responseText) : null } catch { payload = xhr.responseText }
+      if (xhr.status === 401) auth.handleUnauthorized(payload)
+      if (xhr.status < 200 || xhr.status >= 300) {
+        const message = payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
+          ? payload.error
+          : `分片 ${chunkIndex + 1} 上传失败 (${xhr.status})`
+        reject(new ApiError(message, xhr.status, payload))
+        return
+      }
+      onProgress?.(100)
+      resolve()
+    }
+    xhr.send(blob)
+  })
+}
+
+function wait(ms: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, ms))
+}
+
+function isRetryableUploadError(error: unknown) {
+  return !(error instanceof ApiError)
+    || error.status === 0
+    || error.status === 408
+    || error.status === 429
+    || error.status >= 500
+}
+
+async function uploadChunkWithRetry(
+  fileId: string,
+  chunkIndex: number,
+  totalChunks: number,
+  blob: Blob,
+  onProgress: (pct: number) => void,
+) {
+  for (let retry = 0; ; retry += 1) {
+    try {
+      await uploadOneChunk(fileId, chunkIndex, totalChunks, blob, onProgress)
+      return
+    } catch (error) {
+      onProgress(0)
+      if (retry >= CHUNK_MAX_RETRIES || !isRetryableUploadError(error)) throw error
+      await wait(300 * (2 ** retry))
+    }
   }
 }
 
@@ -122,19 +215,61 @@ export async function uploadVideoChunked(
   file: File,
   onProgress?: (pct: number) => void
 ): Promise<UploadResponse> {
-  const fileId = randHex(16)
+  const fileId = videoUploadId(file)
   const totalChunks = Math.ceil(file.size / CHUNK_SIZE)
   const fileExt = videoFileExtension(file)
+  const task: PendingVideoUpload = {
+    fileId,
+    fileName: file.name,
+    fileSize: file.size,
+    lastModified: file.lastModified,
+    totalChunks,
+  }
+  savePendingVideoUpload(task)
 
-  for (let i = 0; i < totalChunks; i++) {
-    const start = i * CHUNK_SIZE
-    const end = Math.min(start + CHUNK_SIZE, file.size)
-    const blob = file.slice(start, end)
-    await uploadOneChunk(fileId, i, totalChunks, blob)
-    if (onProgress) onProgress(Math.round(((i + 1) / totalChunks) * 100))
+  const status = await postJson<{ uploaded: number[] }>('/video/chunkStatus', { file_id: fileId }, { authRequired: true })
+  const uploaded = new Set((status.uploaded || []).filter((index) => Number.isInteger(index) && index >= 0 && index < totalChunks))
+  const missing = Array.from({ length: totalChunks }, (_, index) => index).filter((index) => !uploaded.has(index))
+  const chunkSizeAt = (index: number) => Math.min(CHUNK_SIZE, file.size - index * CHUNK_SIZE)
+  let completedBytes = Array.from(uploaded).reduce((sum, index) => sum + chunkSizeAt(index), 0)
+  const activeProgress = new Map<number, number>()
+
+  const reportProgress = () => {
+    const activeBytes = Array.from(activeProgress.entries()).reduce(
+      (sum, [index, pct]) => sum + chunkSizeAt(index) * pct / 100,
+      0,
+    )
+    onProgress?.(Math.min(99, Math.round(((completedBytes + activeBytes) / file.size) * 100)))
+  }
+  reportProgress()
+
+  let cursor = 0
+  const worker = async () => {
+    while (cursor < missing.length) {
+      const chunkIndex = missing[cursor]
+      cursor += 1
+      if (chunkIndex === undefined) return
+      const start = chunkIndex * CHUNK_SIZE
+      const blob = file.slice(start, Math.min(start + CHUNK_SIZE, file.size))
+      await uploadChunkWithRetry(fileId, chunkIndex, totalChunks, blob, (pct) => {
+        activeProgress.set(chunkIndex, pct)
+        reportProgress()
+      })
+      activeProgress.delete(chunkIndex)
+      completedBytes += blob.size
+      reportProgress()
+    }
   }
 
-  const res = await postJson<UploadResponse>('/video/mergeChunks', { file_id: fileId, file_ext: fileExt }, { authRequired: true })
+  await Promise.all(Array.from({ length: Math.min(CHUNK_CONCURRENCY, missing.length) }, () => worker()))
+  const res = await postJson<UploadResponse>('/video/mergeChunks', {
+    file_id: fileId,
+    file_ext: fileExt,
+    total_chunks: totalChunks,
+    file_size: file.size,
+  }, { authRequired: true })
+  clearPendingVideoUpload(fileId)
+  onProgress?.(100)
   return res
 }
 

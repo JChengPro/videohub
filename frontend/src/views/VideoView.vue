@@ -20,6 +20,7 @@ const maxVideoBytes = 200 * 1024 * 1024
 const maxCoverBytes = 10 * 1024 * 1024
 const videoProgress = ref(0)
 const draggingVideo = ref(false)
+const pendingUpload = ref<videoApi.PendingVideoUpload | null>(null)
 
 const videoInput = ref<HTMLInputElement | null>(null)
 const coverInput = ref<HTMLInputElement | null>(null)
@@ -75,7 +76,10 @@ function onBeforeUnload(event: BeforeUnloadEvent) {
   event.returnValue = ''
 }
 
-onMounted(() => window.addEventListener('beforeunload', onBeforeUnload))
+onMounted(() => {
+  window.addEventListener('beforeunload', onBeforeUnload)
+  pendingUpload.value = videoApi.getPendingVideoUpload()
+})
 
 onBeforeRouteLeave(() => {
   if (!busy.value) return true
@@ -100,6 +104,9 @@ function selectVideo(file: File | null) {
     return
   }
   publishForm.video = file
+  if (file && pendingUpload.value && videoApi.videoUploadId(file) === pendingUpload.value.fileId) {
+    toast.info('已识别上次未完成的视频，发布时将从缺失分片继续上传')
+  }
 }
 
 function pickVideo(e: Event) {
@@ -172,11 +179,7 @@ async function onPublish() {
     toast.error(`视频文件过大：${formatMiB(publishForm.video.size)}，最大支持 ${formatMiB(maxVideoBytes)}`)
     return
   }
-  if (!publishForm.cover) {
-    toast.error('请选择封面图片（jpg/png/webp）')
-    return
-  }
-  if (publishForm.cover.size > maxCoverBytes) {
+  if (publishForm.cover && publishForm.cover.size > maxCoverBytes) {
     toast.error(`封面文件过大：${formatMiB(publishForm.cover.size)}，最大支持 ${formatMiB(maxCoverBytes)}`)
     return
   }
@@ -185,19 +188,23 @@ async function onPublish() {
   stage.value = ''
   published.value = null
   try {
-    stage.value = '上传封面'
-    const coverRes = await videoApi.uploadCover(publishForm.cover!)
+	let coverRes: videoApi.UploadResponse = {}
+	if (publishForm.cover) {
+	  stage.value = '上传封面'
+	  coverRes = await videoApi.uploadCover(publishForm.cover)
+	}
 
     stage.value = '上传视频'
     videoProgress.value = 0
     const videoRes = await videoApi.uploadVideoSmart(publishForm.video!, (pct) => { videoProgress.value = pct })
+    pendingUpload.value = null
 
     const coverUrl = coverRes.url || coverRes.cover_url || ''
     const playUrl = videoRes.url || videoRes.play_url || ''
     const coverObjectKey = coverRes.object_key || ''
     const playObjectKey = videoRes.object_key || ''
-    if (!coverUrl || !playUrl || !coverObjectKey || !playObjectKey) {
-      toast.error('上传成功但缺少文件地址或 object key')
+	if (!playUrl || !playObjectKey) {
+	  toast.error('上传成功但缺少视频地址或 object key')
       return
     }
 
@@ -219,6 +226,7 @@ async function onPublish() {
     clearVideo()
     clearCover()
   } catch (e) {
+    pendingUpload.value = videoApi.getPendingVideoUpload()
     const msg = e instanceof ApiError ? e.message : String(e)
     toast.error(msg)
   } finally {
@@ -242,6 +250,14 @@ async function onPublish() {
           {{ busy ? stage || '正在处理' : '完成视频、封面和标题后即可发布' }}
         </div>
       </header>
+
+      <section v-if="pendingUpload && !busy" class="resume-notice">
+        <div>
+          <strong>发现未完成的视频上传</strong>
+          <p>{{ pendingUpload.fileName }} · {{ formatMiB(pendingUpload.fileSize) }}</p>
+        </div>
+        <span>重新选择同一个视频后，将自动跳过已经上传的分片</span>
+      </section>
 
       <main class="publish-studio">
         <section class="studio-main">
@@ -337,7 +353,7 @@ async function onPublish() {
             <div class="section-heading">
               <div>
                 <h2>视频封面</h2>
-                <p>建议使用清晰、有辨识度的竖版图片。</p>
+                <p>封面为选填；未上传时将从视频开头自动截取。</p>
               </div>
             </div>
 
@@ -364,8 +380,8 @@ async function onPublish() {
                 <span v-if="preview.coverUrl" class="cover-change">更换封面</span>
               </button>
               <div class="cover-tips">
-                <strong>{{ publishForm.cover ? publishForm.cover.name : '选择一张作品封面' }}</strong>
-                <p>{{ publishForm.cover ? formatMiB(publishForm.cover.size) : '支持 JPG、PNG、WEBP，最大 10 MB' }}</p>
+				<strong>{{ publishForm.cover ? publishForm.cover.name : '自定义封面（选填）' }}</strong>
+				<p>{{ publishForm.cover ? formatMiB(publishForm.cover.size) : '不上传时使用视频开头画面；支持 JPG、PNG、WEBP，最大 10 MB' }}</p>
                 <button v-if="publishForm.cover" class="text-button danger-text" type="button" :disabled="busy" @click="clearCover">
                   移除封面
                 </button>
@@ -405,9 +421,9 @@ async function onPublish() {
                 <span>{{ publishForm.video ? '✓' : '1' }}</span>
                 <div><b>上传视频</b><small>MP4 / MOV / M4V / WebM / 3GP，最大 200 MB</small></div>
               </li>
-              <li :class="{ ready: publishForm.cover }">
-                <span>{{ publishForm.cover ? '✓' : '2' }}</span>
-                <div><b>选择封面</b><small>清晰封面更容易被发现</small></div>
+			  <li class="ready">
+				<span>{{ publishForm.cover ? '✓' : '2' }}</span>
+				<div><b>选择封面（选填）</b><small>{{ publishForm.cover ? '已使用自定义封面' : '将自动使用视频开头画面' }}</small></div>
               </li>
               <li :class="{ ready: publishForm.title.trim() }">
                 <span>{{ publishForm.title.trim() ? '✓' : '3' }}</span>
@@ -444,7 +460,7 @@ async function onPublish() {
       <footer class="publish-actions">
         <div>
           <strong>发布前请确认作品信息</strong>
-          <span>视频、封面和标题均为必填项</span>
+		  <span>视频和标题为必填项，封面可以选填</span>
         </div>
         <div class="action-buttons">
           <button class="secondary-action" type="button" :disabled="busy" @click="router.push('/')">取消</button>
@@ -501,6 +517,23 @@ async function onPublish() {
   color: #858585;
   font-size: 12px;
 }
+
+.resume-notice {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border: 1px solid rgba(254, 44, 85, .28);
+  border-radius: 10px;
+  background: rgba(254, 44, 85, .07);
+}
+
+.resume-notice div { display: grid; gap: 4px; }
+.resume-notice strong { font-size: 13px; }
+.resume-notice p,
+.resume-notice > span { color: #a0a0a5; font-size: 11px; }
 
 .status-dot {
   width: 7px;

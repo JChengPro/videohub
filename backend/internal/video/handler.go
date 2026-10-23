@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -316,6 +317,11 @@ func (h *Handler) Delete(c *gin.Context) {
 
 // 分片上传-接受一片，存临时磁盘
 func (h *Handler) UploadChunk(c *gin.Context) {
+	accountID, ok := currentAccountID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid accountID"})
+		return
+	}
 	fileID := c.GetHeader("X-File-ID")
 	if err := validateUploadFileID(fileID); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -323,7 +329,7 @@ func (h *Handler) UploadChunk(c *gin.Context) {
 	}
 	chunkIndex, indexErr := strconv.Atoi(c.GetHeader("X-Chunk-Index"))
 	totalChunks, totalErr := strconv.Atoi(c.GetHeader("X-Total-Chunks"))
-	if indexErr != nil || totalErr != nil || chunkIndex < 0 || totalChunks <= 0 || chunkIndex >= totalChunks || totalChunks > 1000 {
+	if indexErr != nil || totalErr != nil || chunkIndex < 0 || totalChunks <= 0 || chunkIndex >= totalChunks || totalChunks > maxUploadChunks {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid chunk index or total"})
 		return
 	}
@@ -341,7 +347,7 @@ func (h *Handler) UploadChunk(c *gin.Context) {
 	}
 
 	// 存到 .run/uploads/chunks/{fileID}/{chunkIndex}
-	dir := filepath.Join(".run", "uploads", "chunks", fileID)
+	dir := uploadChunkDir(accountID, fileID)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -368,7 +374,14 @@ func (h *Handler) MergeChunks(c *gin.Context) {
 		return
 	}
 
-	playURL, objectKey, err := h.service.MergeChunks(c.Request.Context(), req.FileID, req.FileExt, accountID)
+	if err := validateMergeRequest(req.TotalChunks, req.FileSize); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	playURL, objectKey, err := h.service.MergeChunks(
+		c.Request.Context(), req.FileID, req.FileExt, accountID, req.TotalChunks, req.FileSize,
+	)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -390,8 +403,13 @@ func (h *Handler) ChunkStatus(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	accountID, ok := currentAccountID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid accountID"})
+		return
+	}
 
-	dir := filepath.Join(".run", "uploads", "chunks", req.FileID)
+	dir := uploadChunkDir(accountID, req.FileID)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		c.JSON(http.StatusOK, ChunkStatusResponse{Uploaded: []int{}})
@@ -404,5 +422,6 @@ func (h *Handler) ChunkStatus(c *gin.Context) {
 			uploaded = append(uploaded, idx)
 		}
 	}
+	sort.Ints(uploaded)
 	c.JSON(http.StatusOK, ChunkStatusResponse{Uploaded: uploaded})
 }

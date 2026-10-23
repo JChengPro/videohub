@@ -52,21 +52,16 @@ func TestFFmpegPipelineIntegration(t *testing.T) {
 				t.Fatalf("output codecs = %s/%s, want h264/aac", outputInfo.VideoCodec, outputInfo.AudioCodec)
 			}
 
-			covers, err := GenerateCandidateCovers(ctx, inputPath, filepath.Join(workDir, "covers"), inputInfo.DurationMillis)
+			cover, err := GenerateDefaultCover(ctx, inputPath, filepath.Join(workDir, "cover"), inputInfo.DurationMillis)
 			if err != nil {
-				t.Fatalf("GenerateCandidateCovers(): %v", err)
+				t.Fatalf("GenerateDefaultCover(): %v", err)
 			}
-			if len(covers) != 3 {
-				t.Fatalf("generated %d covers, want 3", len(covers))
+			stat, err := os.Stat(cover)
+			if err != nil {
+				t.Fatalf("cover %s: %v", cover, err)
 			}
-			for _, cover := range covers {
-				stat, err := os.Stat(cover)
-				if err != nil {
-					t.Fatalf("cover %s: %v", cover, err)
-				}
-				if stat.Size() == 0 {
-					t.Fatalf("cover %s is empty", cover)
-				}
+			if stat.Size() == 0 {
+				t.Fatalf("cover %s is empty", cover)
 			}
 		})
 	}

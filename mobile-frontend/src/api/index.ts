@@ -111,39 +111,160 @@ async function uploadChunk(fileId: string, index: number, total: number, blob: B
   }, onProgress)
 }
 
+const CHUNK_SIZE = 5 * 1024 * 1024
+const CHUNK_THRESHOLD = 10 * 1024 * 1024
+const CHUNK_CONCURRENCY = 3
+const CHUNK_MAX_RETRIES = 3
+const PENDING_UPLOAD_KEY = 'videohub:pending-video-upload'
+
+export type PendingVideoUpload = {
+  fileId: string
+  fileName: string
+  fileSize: number
+  lastModified: number
+  totalChunks: number
+}
+
+function uploadStorageKey() {
+  const accountId = useAuthStore().claims?.account_id
+  return accountId ? `${PENDING_UPLOAD_KEY}:${accountId}` : ''
+}
+
+export function getPendingVideoUpload(): PendingVideoUpload | null {
+  const key = uploadStorageKey()
+  if (!key) return null
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || 'null') as Partial<PendingVideoUpload> | null
+    if (!value || typeof value.fileId !== 'string' || typeof value.fileName !== 'string'
+      || typeof value.fileSize !== 'number' || typeof value.lastModified !== 'number'
+      || typeof value.totalChunks !== 'number') return null
+    return value as PendingVideoUpload
+  } catch {
+    return null
+  }
+}
+
+function savePendingVideoUpload(task: PendingVideoUpload) {
+  const key = uploadStorageKey()
+  if (!key) return
+  try { localStorage.setItem(key, JSON.stringify(task)) } catch { /* Upload still works without local task hints. */ }
+}
+
+function clearPendingVideoUpload(fileId: string) {
+  const key = uploadStorageKey()
+  if (!key) return
+  try {
+    const task = getPendingVideoUpload()
+    if (task?.fileId === fileId) localStorage.removeItem(key)
+  } catch { /* Upload has already completed; stale hints are harmless. */ }
+}
+
+export function videoUploadId(file: Pick<File, 'name' | 'size' | 'lastModified'>): string {
+  const input = `${file.name}:${file.size}:${file.lastModified}`
+  const seeds = [0x811c9dc5, 0x9e3779b9, 0x85ebca6b, 0xc2b2ae35]
+  return seeds.map((seed) => {
+    let hash = seed >>> 0
+    for (let index = 0; index < input.length; index += 1) {
+      hash ^= input.charCodeAt(index)
+      hash = Math.imul(hash, 0x01000193) >>> 0
+    }
+    return hash.toString(16).padStart(8, '0')
+  }).join('')
+}
+
+function wait(ms: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, ms))
+}
+
+function isRetryableUploadError(error: unknown) {
+  return !(error instanceof ApiError)
+    || error.status === 0
+    || error.status === 408
+    || error.status === 429
+    || error.status >= 500
+}
+
+async function uploadChunkWithRetry(
+  fileId: string,
+  index: number,
+  total: number,
+  blob: Blob,
+  onProgress: (progress: number) => void,
+) {
+  for (let retry = 0; ; retry += 1) {
+    try {
+      await uploadChunk(fileId, index, total, blob, onProgress)
+      return
+    } catch (error) {
+      onProgress(0)
+      if (retry >= CHUNK_MAX_RETRIES || !isRetryableUploadError(error)) throw error
+      await wait(300 * (2 ** retry))
+    }
+  }
+}
+
 async function uploadVideoSmart(file: File, onProgress?: (progress: number) => void) {
-  if (file.size <= 10 * 1024 * 1024) {
+  if (file.size <= CHUNK_THRESHOLD) {
     const form = new FormData()
     form.append('file', file)
     return xhrUpload<{ url?: string; play_url?: string; object_key?: string }>('/video/uploadVideo', form, {}, onProgress)
   }
 
-  const chunkSize = 5 * 1024 * 1024
-  const total = Math.ceil(file.size / chunkSize)
-  const fileId = randomHex(16)
+  const total = Math.ceil(file.size / CHUNK_SIZE)
+  const fileId = videoUploadId(file)
   const fileExt = videoFileExtension(file)
-  for (let index = 0; index < total; index += 1) {
-    await uploadChunk(
-      fileId,
-      index,
-      total,
-      file.slice(index * chunkSize, Math.min(file.size, (index + 1) * chunkSize)),
-      (chunkProgress) => onProgress?.(Math.min(95, Math.round(((index + chunkProgress / 100) / total) * 95))),
+  savePendingVideoUpload({
+    fileId,
+    fileName: file.name,
+    fileSize: file.size,
+    lastModified: file.lastModified,
+    totalChunks: total,
+  })
+
+  const status = await request<{ uploaded: number[] }>('/video/chunkStatus', { file_id: fileId }, true)
+  const uploaded = new Set((status.uploaded || []).filter((index) => Number.isInteger(index) && index >= 0 && index < total))
+  const missing = Array.from({ length: total }, (_, index) => index).filter((index) => !uploaded.has(index))
+  const chunkSizeAt = (index: number) => Math.min(CHUNK_SIZE, file.size - index * CHUNK_SIZE)
+  let completedBytes = Array.from(uploaded).reduce((sum, index) => sum + chunkSizeAt(index), 0)
+  const activeProgress = new Map<number, number>()
+
+  const reportProgress = () => {
+    const activeBytes = Array.from(activeProgress.entries()).reduce(
+      (sum, [index, progress]) => sum + chunkSizeAt(index) * progress / 100,
+      0,
     )
+    onProgress?.(Math.min(99, Math.round(((completedBytes + activeBytes) / file.size) * 100)))
   }
-  const result = await request<{ url?: string; play_url?: string; object_key?: string }>('/video/mergeChunks', { file_id: fileId, file_ext: fileExt }, true)
+  reportProgress()
+
+  let cursor = 0
+  const worker = async () => {
+    while (cursor < missing.length) {
+      const index = missing[cursor]
+      cursor += 1
+      if (index === undefined) return
+      const start = index * CHUNK_SIZE
+      const blob = file.slice(start, Math.min(file.size, start + CHUNK_SIZE))
+      await uploadChunkWithRetry(fileId, index, total, blob, (progress) => {
+        activeProgress.set(index, progress)
+        reportProgress()
+      })
+      activeProgress.delete(index)
+      completedBytes += blob.size
+      reportProgress()
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(CHUNK_CONCURRENCY, missing.length) }, () => worker()))
+  const result = await request<{ url?: string; play_url?: string; object_key?: string }>('/video/mergeChunks', {
+    file_id: fileId,
+    file_ext: fileExt,
+    total_chunks: total,
+    file_size: file.size,
+  }, true)
+  clearPendingVideoUpload(fileId)
   onProgress?.(100)
   return result
-}
-
-function randomHex(size: number) {
-  const bytes = new Uint8Array(size)
-  if (globalThis.crypto?.getRandomValues) {
-    globalThis.crypto.getRandomValues(bytes)
-  } else {
-    for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256)
-  }
-  return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')
 }
 
 export const VIDEO_ACCEPT = 'video/mp4,video/quicktime,video/x-m4v,video/webm,video/3gpp,.mp4,.mov,.m4v,.webm,.3gp,.3gpp'

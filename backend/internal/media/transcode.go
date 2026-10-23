@@ -105,35 +105,33 @@ func Transcode(ctx context.Context, inputPath, outputPath string, durationMillis
 	return nil
 }
 
-// GenerateCandidateCovers extracts frames at 25%, 50%, and 75% of the video duration.
-func GenerateCandidateCovers(ctx context.Context, inputPath, outputDir string, durationMillis int64) ([]string, error) {
+// GenerateDefaultCover extracts one frame near the beginning of the video.
+func GenerateDefaultCover(ctx context.Context, inputPath, outputDir string, durationMillis int64) (string, error) {
 	if inputPath == "" || outputDir == "" || durationMillis <= 0 {
-		return nil, fmt.Errorf("%w: invalid cover arguments", ErrProcessing)
+		return "", fmt.Errorf("%w: invalid cover arguments", ErrProcessing)
 	}
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
-		return nil, fmt.Errorf("%w: create cover directory: %v", ErrProcessing, err)
+		return "", fmt.Errorf("%w: create cover directory: %v", ErrProcessing, err)
 	}
 
-	positions := []int64{25, 50, 75}
-	paths := make([]string, 0, len(positions))
-	for index, position := range positions {
-		seconds := float64(durationMillis*position) / 100 / 1000
-		outputPath := filepath.Join(outputDir, fmt.Sprintf("cover_%d.jpg", index+1))
-		cmd := exec.CommandContext(
-			ctx,
-			"ffmpeg",
-			"-y",
-			"-v", "error",
-			"-ss", strconv.FormatFloat(seconds, 'f', 3, 64),
-			"-i", inputPath,
-			"-frames:v", "1",
-			"-q:v", "2",
-			outputPath,
-		)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return nil, fmt.Errorf("%w: generate cover %d: %v: %s", ErrProcessing, index+1, err, strings.TrimSpace(string(output)))
-		}
-		paths = append(paths, outputPath)
+	seekMillis := int64(1000)
+	if durationMillis < 2000 {
+		seekMillis = durationMillis / 2
 	}
-	return paths, nil
+	outputPath := filepath.Join(outputDir, "cover.jpg")
+	cmd := exec.CommandContext(
+		ctx,
+		"ffmpeg",
+		"-y",
+		"-v", "error",
+		"-ss", strconv.FormatFloat(float64(seekMillis)/1000, 'f', 3, 64),
+		"-i", inputPath,
+		"-frames:v", "1",
+		"-q:v", "2",
+		outputPath,
+	)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("%w: generate default cover: %v: %s", ErrProcessing, err, strings.TrimSpace(string(output)))
+	}
+	return outputPath, nil
 }

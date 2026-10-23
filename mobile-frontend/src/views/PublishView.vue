@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRouter } from 'vue-router'
-import { api, isSupportedVideo, VIDEO_ACCEPT, videoFileExtension } from '../api'
+import { api, getPendingVideoUpload, isSupportedVideo, VIDEO_ACCEPT, videoFileExtension, videoUploadId, type PendingVideoUpload } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { useToastStore } from '../stores/toast'
 import AppIcon from '../components/AppIcon.vue'
@@ -15,10 +15,11 @@ const uploadProgress = ref(0)
 const processingProgress = ref(0)
 const previewError = ref(false)
 const videoInput = ref<HTMLInputElement | null>(null)
+const pendingUpload = ref<PendingVideoUpload | null>(null)
 const form = reactive({ title: '', description: '', video: null as File | null, cover: null as File | null })
 const videoPreview = ref('')
 const coverPreview = ref('')
-const canPublish = computed(() => Boolean(form.title.trim() && form.video && form.cover && !busy.value))
+const canPublish = computed(() => Boolean(form.title.trim() && form.video && !busy.value))
 const totalProgress = computed(() => {
   if (stage.value === '上传封面') return 5
   if (stage.value === '上传视频') return 5 + Math.round(uploadProgress.value * .55)
@@ -51,7 +52,10 @@ function onBeforeUnload(event: BeforeUnloadEvent) {
   event.returnValue = ''
 }
 
-onMounted(() => window.addEventListener('beforeunload', onBeforeUnload))
+onMounted(() => {
+  window.addEventListener('beforeunload', onBeforeUnload)
+  pendingUpload.value = getPendingVideoUpload()
+})
 onBeforeRouteLeave(() => {
   if (!busy.value) return true
   toast.info('视频正在上传，请等待发布完成后再离开')
@@ -71,23 +75,30 @@ function choose(event: Event, type: 'video' | 'cover') {
   if (type === 'cover' && file && !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) return toast.error('封面仅支持 JPG、PNG 或 WebP')
   if (type === 'cover' && file && file.size > 10 * 1024 * 1024) return toast.error('封面不能超过 10MB')
   form[type] = file
+  if (type === 'video' && file && pendingUpload.value && videoUploadId(file) === pendingUpload.value.fileId) {
+    toast.info('已识别上次未完成的视频，将从缺失分片继续上传')
+  }
 }
 
 async function publish() {
   if (!auth.isLoggedIn) return router.push('/me')
-  if (!canPublish.value || !form.video || !form.cover) return
+  if (!canPublish.value || !form.video) return
   busy.value = true
   uploadProgress.value = 0
   processingProgress.value = 0
   try {
-    stage.value = '上传封面'
-    const cover = await api.uploadCover(form.cover)
+	let cover: { url?: string; cover_url?: string; object_key?: string } = {}
+	if (form.cover) {
+	  stage.value = '上传封面'
+	  cover = await api.uploadCover(form.cover)
+	}
     stage.value = '上传视频'
     uploadProgress.value = 0
     const video = await api.uploadVideo(form.video, (progress) => { uploadProgress.value = progress })
+    pendingUpload.value = null
     const playURL = video.url || video.play_url || ''
     const coverURL = cover.url || cover.cover_url || ''
-    if (!playURL || !coverURL || !video.object_key || !cover.object_key) throw new Error('上传成功，但文件地址不完整，请重试')
+	if (!playURL || !video.object_key) throw new Error('上传成功，但视频地址不完整，请重试')
     stage.value = '提交处理任务'
     uploadProgress.value = 100
     const published = await api.publish({
@@ -96,14 +107,17 @@ async function publish() {
       play_url: playURL,
       cover_url: coverURL,
       play_object_key: video.object_key,
-      cover_object_key: cover.object_key,
+      cover_object_key: cover.object_key || '',
     })
     toast.success('投稿已提交，处理完成后进入审核')
     busy.value = false
     stage.value = ''
     uploadProgress.value = 0
     await router.push(`/submissions/${published.id}`)
-  } catch (cause) { toast.error(cause instanceof Error ? cause.message : String(cause)) }
+  } catch (cause) {
+    pendingUpload.value = getPendingVideoUpload()
+    toast.error(cause instanceof Error ? cause.message : String(cause))
+  }
   finally { busy.value = false; stage.value = ''; uploadProgress.value = 0; processingProgress.value = 0 }
 }
 </script>
@@ -117,6 +131,11 @@ async function publish() {
     </header>
     <section v-if="!auth.isLoggedIn" class="login-required"><h2>登录后发布作品</h2><p>分享你的视角，让更多人看见。</p><button type="button" @click="router.push('/me')">立即登录</button></section>
     <section v-else class="creator">
+      <section v-if="pendingUpload && !busy" class="resume-notice">
+        <b>发现未完成的视频上传</b>
+        <p>{{ pendingUpload.fileName }}</p>
+        <span>重新选择同一个视频，将自动续传缺失分片</span>
+      </section>
       <div class="video-picker" :class="{ selected: videoPreview }">
         <video v-if="videoPreview && !previewError" :src="videoPreview" controls playsinline preload="metadata" @error="previewError = true" />
         <div v-else-if="previewError" class="preview-error">
@@ -154,7 +173,7 @@ async function publish() {
           <small>{{ form.description.length }}/500</small>
         </label>
         <label class="cover-picker">
-          <div class="cover-copy"><span>选择封面</span><p>清晰封面更容易被看见</p></div>
+		  <div class="cover-copy"><span>选择封面（选填）</span><p>不上传时使用视频开头画面</p></div>
           <div class="cover-preview"><img v-if="coverPreview" :src="coverPreview" alt="已选择的视频封面预览" /><span v-else><AppIcon name="plus" :size="20" /></span></div>
           <input type="file" accept="image/jpeg,image/png,image/webp" @change="choose($event, 'cover')" />
         </label>
@@ -168,6 +187,10 @@ async function publish() {
 .publish-page { min-height: 100dvh; padding-bottom: calc(82px + env(safe-area-inset-bottom)); background: radial-gradient(circle at 50% -10%, #29292f 0, #17171a 30%, #121214 62%); }
 .publish-header { position: sticky; z-index: 10; top: 0; min-height: calc(56px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) 15px 0; display: grid; grid-template-columns: 64px 1fr 64px; align-items: center; border-bottom: 1px solid rgba(255,255,255,.06); background: rgba(18,18,20,.9); backdrop-filter: blur(20px); }.publish-header b { text-align: center; font-size: 15px; }.publish-header button { height: 34px; border-radius: 7px; font-size: 13px; font-weight: 700; }.cancel { color: #aaa; text-align: left; }.submit { background: #fe2c55; color: #fff; }.submit:disabled { background: #343439; color: #717176; }
 .creator { padding: 18px 14px 0; }
+.resume-notice { margin-bottom: 14px; padding: 12px 13px; display: grid; gap: 4px; border: 1px solid rgba(254,44,85,.25); border-radius: 8px; background: rgba(254,44,85,.07); }
+.resume-notice b { font-size: 12px; }
+.resume-notice p { overflow: hidden; color: #c7c7cb; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.resume-notice span { color: #7f7f86; font-size: 9px; }
 .video-picker { position: relative; width: min(66vw, 270px); aspect-ratio: 9/14; margin: 0 auto; overflow: hidden; display: grid; place-items: center; border: 1px dashed rgba(255,255,255,.19); border-radius: 13px; background: linear-gradient(145deg, #29292e, #0d0d0f 72%); box-shadow: 0 22px 54px rgba(0,0,0,.35); }.video-picker.selected { border-style: solid; border-color: rgba(255,255,255,.12); }.hidden-input,.cover-picker input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }.choose-overlay { position: absolute; z-index: 3; inset: 0; width: 100%; }.video-picker video { width: 100%; height: 100%; object-fit: contain; background: #09090b; }.empty-video,.preview-error { padding: 20px; display: grid; justify-items: center; gap: 9px; text-align: center; }.empty-video > span { width: 54px; height: 54px; display: grid; place-items: center; border-radius: 50%; background: #fff; color: #111; }.empty-video b,.preview-error b { margin-top: 5px; font-size: 14px; }.empty-video p,.preview-error p { color: #85858c; font-size: 10px; line-height: 1.6; }.preview-error { color: #aaa; }.format-strip { margin-top: 8px; display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; }.format-strip i { padding: 3px 6px; border-radius: 4px; background: rgba(255,255,255,.07); color: #8d8d94; font-size: 8px; font-style: normal; }.replace-video { position: absolute; z-index: 3; right: 8px; bottom: 8px; padding: 6px 9px; display: flex; align-items: center; gap: 3px; border-radius: 14px; background: rgba(10,10,12,.72); color: #fff; font-size: 10px; backdrop-filter: blur(10px); }.video-meta { max-width: 300px; margin: 10px auto 20px; overflow: hidden; display: flex; justify-content: space-between; gap: 12px; color: #8b8b91; font-size: 9px; white-space: nowrap; text-overflow: ellipsis; }.video-meta span { flex: 0 0 auto; color: #b9b9be; }
 .upload-progress { margin: 0 0 14px; padding: 13px 14px; border: 1px solid rgba(255,255,255,.07); border-radius: 11px; background: #202024; }.upload-progress div { display: flex; justify-content: space-between; color: #eee; font-size: 11px; }.upload-progress div span { color: #a2a2a9; }.upload-progress > i { height: 3px; margin-top: 10px; overflow: hidden; display: block; border-radius: 3px; background: #36363b; }.upload-progress > i span { height: 100%; display: block; border-radius: inherit; background: #fe2c55; transition: width .18s ease; }.upload-progress p { margin-top: 8px; color: #696970; font-size: 8px; }
 .form-card { overflow: hidden; border: 1px solid rgba(255,255,255,.06); border-radius: 13px; background: #202024; }.field { position: relative; padding: 16px 15px 13px; display: grid; gap: 7px; border-bottom: 1px solid rgba(255,255,255,.06); }.field span,.cover-copy span { color: #ededf0; font-size: 12px; font-weight: 700; }.field input,.field textarea { width: 100%; padding-right: 34px; border: 0; background: transparent; color: #fff; font-size: 13px; line-height: 1.55; resize: none; }.field small { position: absolute; right: 15px; bottom: 14px; color: #66666d; font-size: 8px; }.description small { bottom: 15px; }
