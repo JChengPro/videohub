@@ -33,6 +33,9 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := migrateNotifications(db); err != nil {
 		return err
 	}
+	if err := migrateMultipartPartETag(db); err != nil {
+		return err
+	}
 	if err := db.AutoMigrate(
 		&account.Account{},
 		&video.Video{},
@@ -41,6 +44,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&social.Social{},
 		&video.OutboxMsg{},
 		&video.ConsumedEvent{},
+		&video.MultipartUpload{},
+		&video.MultipartUploadPart{},
 		&notification.Notification{},
 		&message.Conversation{},
 		&message.Message{},
@@ -58,6 +63,17 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 	return db.Model(&video.Video{}).Where("status = ? AND published_at IS NULL", video.VideoStatusPublished).Update("published_at", gorm.Expr("create_time")).Error
+}
+
+func migrateMultipartPartETag(database *gorm.DB) error {
+	if !database.Migrator().HasTable(&video.MultipartUploadPart{}) {
+		return nil
+	}
+	if database.Migrator().HasColumn(&video.MultipartUploadPart{}, "e_tag") &&
+		!database.Migrator().HasColumn(&video.MultipartUploadPart{}, "etag") {
+		return database.Migrator().RenameColumn(&video.MultipartUploadPart{}, "e_tag", "etag")
+	}
+	return nil
 }
 
 // migrateNotifications collapses legacy duplicate follow notifications before

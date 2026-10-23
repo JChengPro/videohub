@@ -16,7 +16,8 @@ func New(cfg config.StorageConfig) (Storage, error) {
 
 	case "oss":
 		return NewOSSStorage(
-			cfg.OSS.Endpoint,
+			cfg.OSS.InternalEndpoint,
+			cfg.OSS.PublicEndpoint,
 			cfg.OSS.BucketName,
 			cfg.OSS.AccessKeyID,
 			cfg.OSS.AccessKeySecret,

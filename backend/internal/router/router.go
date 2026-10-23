@@ -124,6 +124,13 @@ func New(
 		protectedVideoGroup.POST("/uploadChunk", videoHandler.UploadChunk)
 		protectedVideoGroup.POST("/chunkStatus", videoHandler.ChunkStatus)
 		protectedVideoGroup.POST("/mergeChunks", videoHandler.MergeChunks)
+		protectedVideoGroup.POST("/multipart/init", videoHandler.MultipartInit)
+		protectedVideoGroup.POST("/multipart/signParts", videoHandler.MultipartSignParts)
+		protectedVideoGroup.POST("/multipart/partCompleted", videoHandler.MultipartPartCompleted)
+		protectedVideoGroup.POST("/multipart/status", videoHandler.MultipartStatus)
+		protectedVideoGroup.POST("/multipart/complete", videoHandler.MultipartComplete)
+		protectedVideoGroup.POST("/multipart/abort", videoHandler.MultipartAbort)
+		protectedVideoGroup.POST("/multipart/tasks", videoHandler.MultipartTasks)
 	}
 	likeRepo := video.NewLikeRepository(db)
 

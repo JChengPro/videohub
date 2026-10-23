@@ -10,7 +10,7 @@ import (
 
 const (
 	maxUploadChunks   = 1000
-	maxUploadFileSize = 200 << 20
+	maxUploadFileSize = MaxVideoUploadSize
 )
 
 var allowedVideoExtensions = map[string]struct{}{

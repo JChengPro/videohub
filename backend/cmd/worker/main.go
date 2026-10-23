@@ -66,6 +66,7 @@ func main() {
 	//poller 每 2 秒扫描一次 outbox_msgs 表。
 	//如果发现 pending 消息，就发到 RabbitMQ。
 	worker.StartOutboxPoller(context.Background(), videoRepo, rabbit, 2*time.Second)
+	worker.StartMultipartCleanup(context.Background(), videoRepo, fileStorage, 5*time.Minute)
 
 	likeWorker := worker.NewLikeWorker(videoRepo, redisClient)
 

@@ -35,6 +35,24 @@ type Storage interface {
 	URL(ctx context.Context, objectKey string, expires time.Duration) (string, error)
 }
 
+// MultipartPart is the OSS metadata required to finish one multipart upload.
+type MultipartPart struct {
+	PartNumber int    `json:"part_number"`
+	ETag       string `json:"etag"`
+	Size       int64  `json:"size"`
+}
+
+// MultipartStorage is implemented by object stores that support direct browser uploads.
+// LocalStorage intentionally does not implement it, so local development keeps using the
+// existing API chunk upload and merge flow.
+type MultipartStorage interface {
+	InitiateMultipart(ctx context.Context, objectKey string) (string, error)
+	SignMultipartPart(ctx context.Context, objectKey, uploadID string, partNumber int, expires time.Duration) (string, error)
+	ListMultipartParts(ctx context.Context, objectKey, uploadID string) ([]MultipartPart, error)
+	CompleteMultipart(ctx context.Context, objectKey, uploadID string, parts []MultipartPart) error
+	AbortMultipart(ctx context.Context, objectKey, uploadID string) error
+}
+
 // validateObjectKey 保证对象路径是规范的相对路径，避免本地存储目录穿越。
 func validateObjectKey(objectKey string) error {
 	objectKey = strings.TrimSpace(objectKey)

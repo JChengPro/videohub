@@ -11,6 +11,15 @@ const (
 	VideoStatusFailed        = "failed"
 )
 
+const (
+	MultipartStatusUploading  = "uploading"
+	MultipartStatusCompleting = "completing"
+	MultipartStatusCompleted  = "completed"
+	MultipartStatusAborting   = "aborting"
+	MultipartStatusExpired    = "expired"
+	MultipartStatusFailed     = "failed"
+)
+
 type Video struct {
 	ID          uint   `gorm:"primaryKey" json:"id"`
 	AuthorID    uint   `gorm:"index;not null" json:"author_id"`
@@ -40,6 +49,33 @@ type Video struct {
 	Status             string     `gorm:"type:varchar(20);not null;default:processing;index" json:"status"`
 	PublishedAt        *time.Time `gorm:"index" json:"published_at,omitempty"`
 	ReviewReason       string     `gorm:"size:500;not null;default:''" json:"review_reason,omitempty"`
+}
+
+type MultipartUpload struct {
+	ID             string    `gorm:"type:char(32);primaryKey" json:"id"`
+	AccountID      uint      `gorm:"not null;index:idx_multipart_owner_file" json:"account_id"`
+	FileID         string    `gorm:"type:varchar(64);not null;index:idx_multipart_owner_file" json:"file_id"`
+	FileName       string    `gorm:"type:varchar(255);not null" json:"file_name"`
+	FileSize       int64     `gorm:"not null" json:"file_size"`
+	ObjectKey      string    `gorm:"type:varchar(500);not null" json:"-"`
+	UploadID       string    `gorm:"type:varchar(255);not null" json:"-"`
+	TotalParts     int       `gorm:"not null" json:"total_parts"`
+	Status         string    `gorm:"type:varchar(20);not null;index" json:"status"`
+	VideoID        uint      `gorm:"index" json:"video_id,omitempty"`
+	LastActivityAt time.Time `gorm:"not null" json:"last_activity_at"`
+	ExpiresAt      time.Time `gorm:"not null;index" json:"expires_at"`
+	FailureReason  string    `gorm:"type:varchar(500);not null;default:''" json:"failure_reason,omitempty"`
+	CreateTime     time.Time `gorm:"autoCreateTime" json:"create_time"`
+	UpdateTime     time.Time `gorm:"autoUpdateTime" json:"update_time"`
+}
+
+type MultipartUploadPart struct {
+	ID           uint      `gorm:"primaryKey" json:"-"`
+	UploadTaskID string    `gorm:"type:char(32);not null;uniqueIndex:idx_multipart_task_part" json:"-"`
+	PartNumber   int       `gorm:"not null;uniqueIndex:idx_multipart_task_part" json:"part_number"`
+	ETag         string    `gorm:"column:etag;type:varchar(255);not null" json:"etag"`
+	Size         int64     `gorm:"not null" json:"size"`
+	CompletedAt  time.Time `gorm:"not null" json:"completed_at"`
 }
 
 func (v *Video) PublicationTime() time.Time {
