@@ -311,20 +311,28 @@ func (s *Service) deleteHotRanking(ctx context.Context, videoID uint) error {
 }
 
 // MergeChunks 把临时分片合并后上传到当前存储实现。
-func (s *Service) MergeChunks(ctx context.Context, fileID string, fileExt string, accountID uint) (string, string, error) {
+func (s *Service) MergeChunks(
+	ctx context.Context,
+	fileID string,
+	fileExt string,
+	accountID uint,
+	totalChunks int,
+	fileSize int64,
+) (string, string, error) {
 	if err := validateUploadFileID(fileID); err != nil {
+		return "", "", err
+	}
+	if err := validateMergeRequest(totalChunks, fileSize); err != nil {
 		return "", "", err
 	}
 	ext, err := normalizeVideoExtension(fileExt)
 	if err != nil {
 		return "", "", err
 	}
-	chunkDir := filepath.Join(".run", "uploads", "chunks", fileID)
-	entries, err := os.ReadDir(chunkDir)
-	if err != nil {
+	chunkDir := uploadChunkDir(accountID, fileID)
+	if _, err := os.Stat(chunkDir); err != nil {
 		return "", "", fmt.Errorf("chunks not found: %w", err)
 	}
-	totalChunks := len(entries)
 
 	tempFile, err := os.CreateTemp("", "videohub-merge-*"+ext)
 	if err != nil {
@@ -337,7 +345,7 @@ func (s *Service) MergeChunks(ctx context.Context, fileID string, fileExt string
 	date := time.Now().Format("20060102")
 	objectKey := path.Join("videos", fmt.Sprintf("%d", accountID), date, randHex(16)+ext)
 
-	// 分片按编号顺序写入临时文件。
+	// 严格按照客户端声明的总片数合并；任何缺片都会终止，避免生成损坏视频。
 	for i := 0; i < totalChunks; i++ {
 		chunkPath := filepath.Join(chunkDir, fmt.Sprintf("%d", i))
 		data, err := os.ReadFile(chunkPath)
@@ -347,6 +355,13 @@ func (s *Service) MergeChunks(ctx context.Context, fileID string, fileExt string
 		if _, err := tempFile.Write(data); err != nil {
 			return "", "", fmt.Errorf("write chunk %d failed: %w", i, err)
 		}
+	}
+	mergedSize, err := tempFile.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return "", "", fmt.Errorf("read merged file size failed: %w", err)
+	}
+	if mergedSize != fileSize {
+		return "", "", fmt.Errorf("merged file size mismatch: got %d, want %d", mergedSize, fileSize)
 	}
 
 	if _, err := tempFile.Seek(0, io.SeekStart); err != nil {

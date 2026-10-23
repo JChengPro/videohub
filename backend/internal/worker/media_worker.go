@@ -122,34 +122,35 @@ func (w *MediaWorker) processAttempt(ctx context.Context, target *video.Video) e
 		return fmt.Errorf("probe transcoded output: %w", err)
 	}
 
-	if err := video.SaveProcessingProgress(ctx, w.cache, target.ID, "generating_covers", 82); err != nil {
-		log.Printf("save media progress failed: video_id=%d err=%v", target.ID, err)
-	}
-	coverPaths, err := media.GenerateCandidateCovers(ctx, inputPath, filepath.Join(workDir, "covers"), info.DurationMillis)
-	if err != nil {
-		return err
+	playObjectKey, generatedCoverObjectKey := mediaOutputKeys(target.AuthorID, target.ID)
+	selectedCover := target.CoverObjectKey
+	generatedCoverPath := ""
+	if selectedCover == "" {
+		if err := video.SaveProcessingProgress(ctx, w.cache, target.ID, "generating_cover", 82); err != nil {
+			log.Printf("save media progress failed: video_id=%d err=%v", target.ID, err)
+		}
+		generatedCoverPath, err = media.GenerateDefaultCover(ctx, inputPath, filepath.Join(workDir, "cover"), info.DurationMillis)
+		if err != nil {
+			return err
+		}
+		selectedCover = generatedCoverObjectKey
 	}
 
-	playObjectKey, coverObjectKeys := mediaOutputKeys(target.AuthorID, target.ID)
 	if err := video.SaveProcessingProgress(ctx, w.cache, target.ID, "uploading", 90); err != nil {
 		log.Printf("save media progress failed: video_id=%d err=%v", target.ID, err)
 	}
 	if err := uploadFile(ctx, w.fileStorage, playObjectKey, outputPath); err != nil {
 		return fmt.Errorf("upload playback: %w", err)
 	}
-	for index, coverPath := range coverPaths {
-		if err := uploadFile(ctx, w.fileStorage, coverObjectKeys[index], coverPath); err != nil {
-			return fmt.Errorf("upload cover %d: %w", index+1, err)
+	if generatedCoverPath != "" {
+		if err := uploadFile(ctx, w.fileStorage, generatedCoverObjectKey, generatedCoverPath); err != nil {
+			return fmt.Errorf("upload default cover: %w", err)
 		}
 	}
 
-	selectedCover := target.CoverObjectKey
-	if selectedCover == "" {
-		selectedCover = coverObjectKeys[1]
-	}
 	target.PlayObjectKey = playObjectKey
 	target.CoverObjectKey = selectedCover
-	target.CoverCandidates = coverObjectKeys
+	target.CoverCandidates = nil
 	target.VideoCodec = outputInfo.VideoCodec
 	target.AudioCodec = outputInfo.AudioCodec
 	target.FormatName = "mp4"
@@ -207,25 +208,18 @@ func (w *MediaWorker) cleanupOriginal(ctx context.Context, target *video.Video) 
 }
 
 func (w *MediaWorker) cleanupGeneratedObjects(ctx context.Context, target *video.Video) {
-	playObjectKey, coverObjectKeys := mediaOutputKeys(target.AuthorID, target.ID)
+	playObjectKey, generatedCoverObjectKey := mediaOutputKeys(target.AuthorID, target.ID)
 	_ = w.fileStorage.Delete(ctx, playObjectKey)
-	for _, objectKey := range coverObjectKeys {
-		_ = w.fileStorage.Delete(ctx, objectKey)
-	}
-	if target.CoverObjectKey != "" {
+	_ = w.fileStorage.Delete(ctx, generatedCoverObjectKey)
+	if target.CoverObjectKey != "" && target.CoverObjectKey != generatedCoverObjectKey {
 		_ = w.fileStorage.Delete(ctx, target.CoverObjectKey)
 	}
 }
 
-func mediaOutputKeys(authorID, videoID uint) (string, []string) {
+func mediaOutputKeys(authorID, videoID uint) (string, string) {
 	playObjectKey := path.Join("videos", fmt.Sprintf("%d", authorID), "processed", fmt.Sprintf("%d", videoID), "playback.mp4")
-	coverBase := path.Join("covers", fmt.Sprintf("%d", authorID), "generated", fmt.Sprintf("%d", videoID))
-	covers := []string{
-		path.Join(coverBase, "cover_1.jpg"),
-		path.Join(coverBase, "cover_2.jpg"),
-		path.Join(coverBase, "cover_3.jpg"),
-	}
-	return playObjectKey, covers
+	coverObjectKey := path.Join("covers", fmt.Sprintf("%d", authorID), "generated", fmt.Sprintf("%d", videoID), "cover.jpg")
+	return playObjectKey, coverObjectKey
 }
 
 func uploadFile(ctx context.Context, fileStorage storage.Storage, objectKey, filename string) error {

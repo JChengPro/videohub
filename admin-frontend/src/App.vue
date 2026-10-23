@@ -66,7 +66,8 @@ const date = (value: string) =>
 const isLogin = computed(() => route.path === "/login");
 let listRequest = 0,
   detailRequest = 0,
-  refreshTimer: ReturnType<typeof setInterval> | undefined;
+  listRefreshTimer: ReturnType<typeof setInterval> | undefined,
+  detailRefreshTimer: ReturnType<typeof setInterval> | undefined;
 function message(e: unknown) {
   return e instanceof Error ? e.message : String(e);
 }
@@ -116,11 +117,13 @@ async function logout() {
     busy.value = false;
   }
 }
-async function load() {
+async function loadList(quiet: boolean) {
   if (!ready.value) return;
   const id = ++listRequest;
-  loading.value = true;
-  error.value = "";
+  if (!quiet) {
+    loading.value = true;
+    error.value = "";
+  }
   try {
     const data = await post<{ items: Video[]; total: number }>("videos", {
       status: status.value,
@@ -132,10 +135,13 @@ async function load() {
     items.value = data.items;
     total.value = data.total;
   } catch (e) {
-    if (id === listRequest) error.value = message(e);
+    if (id === listRequest && !quiet) error.value = message(e);
   } finally {
-    if (id === listRequest) loading.value = false;
+    if (id === listRequest && !quiet) loading.value = false;
   }
+}
+async function load() {
+  await loadList(false);
 }
 async function select(id: number, quiet = false) {
   const req = ++detailRequest;
@@ -222,11 +228,26 @@ watch(
       void select(Number(id));
   },
 );
+function refreshVisibleReviews() {
+  if (document.visibilityState !== "visible" || !ready.value || !route.path.startsWith("/reviews") || busy.value)
+    return;
+  if (!loading.value) void loadList(true);
+  if (detail.value && !decision.value && !detailLoading.value)
+    void select(detail.value.video.id, true);
+}
 onMounted(async () => {
   window.addEventListener("review-session-ended", ended);
-  refreshTimer = setInterval(
+  document.addEventListener("visibilitychange", refreshVisibleReviews);
+  listRefreshTimer = setInterval(
     () => {
-      if (route.path.startsWith('/reviews') && detail.value && !decision.value && !busy.value)
+      if (document.visibilityState === "visible" && ready.value && route.path.startsWith("/reviews") && !busy.value && !loading.value)
+        void loadList(true);
+    },
+    10 * 1000,
+  );
+  detailRefreshTimer = setInterval(
+    () => {
+      if (document.visibilityState === "visible" && route.path.startsWith('/reviews') && detail.value && !decision.value && !busy.value)
         void select(detail.value.video.id, true);
     },
     4 * 60 * 1000,
@@ -252,7 +273,9 @@ onMounted(async () => {
 });
 onUnmounted(() => {
   window.removeEventListener("review-session-ended", ended);
-  clearInterval(refreshTimer);
+  document.removeEventListener("visibilitychange", refreshVisibleReviews);
+  clearInterval(listRefreshTimer);
+  clearInterval(detailRefreshTimer);
   listRequest++;
   detailRequest++;
 });

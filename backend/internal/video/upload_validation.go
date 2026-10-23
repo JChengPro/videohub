@@ -2,9 +2,15 @@ package video
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"unicode"
+)
+
+const (
+	maxUploadChunks   = 1000
+	maxUploadFileSize = 200 << 20
 )
 
 var allowedVideoExtensions = map[string]struct{}{
@@ -41,6 +47,20 @@ func validateUploadFileID(value string) error {
 		if !unicode.IsLetter(char) && !unicode.IsDigit(char) && char != '-' && char != '_' {
 			return errors.New("invalid file_id")
 		}
+	}
+	return nil
+}
+
+func uploadChunkDir(accountID uint, fileID string) string {
+	return filepath.Join(".run", "uploads", "chunks", fmt.Sprintf("%d", accountID), fileID)
+}
+
+func validateMergeRequest(totalChunks int, fileSize int64) error {
+	if totalChunks <= 0 || totalChunks > maxUploadChunks {
+		return errors.New("invalid total_chunks")
+	}
+	if fileSize <= 0 || fileSize > maxUploadFileSize {
+		return errors.New("invalid file_size")
 	}
 	return nil
 }

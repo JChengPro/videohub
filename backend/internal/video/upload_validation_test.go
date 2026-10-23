@@ -68,9 +68,20 @@ func TestValidateUploadFileID(t *testing.T) {
 	}
 }
 
+func TestUploadChunkDirSeparatesAccounts(t *testing.T) {
+	t.Parallel()
+
+	fileID := "0123456789abcdef0123456789abcdef"
+	first := uploadChunkDir(1, fileID)
+	second := uploadChunkDir(2, fileID)
+	if first == second {
+		t.Fatalf("different accounts must not share a chunk directory: %q", first)
+	}
+}
+
 func TestMergeChunksAllowsStorageToCloseReader(t *testing.T) {
 	fileID := "0123456789abcdef0123456789abcdef"
-	chunkDir := filepath.Join(".run", "uploads", "chunks", fileID)
+	chunkDir := uploadChunkDir(7, fileID)
 	t.Cleanup(func() { _ = os.RemoveAll(chunkDir) })
 
 	if err := os.MkdirAll(chunkDir, 0o755); err != nil {
@@ -81,11 +92,50 @@ func TestMergeChunksAllowsStorageToCloseReader(t *testing.T) {
 	}
 
 	service := &Service{fileStorage: closingTestStorage{}}
-	_, objectKey, err := service.MergeChunks(context.Background(), fileID, ".mov", 7)
+	_, objectKey, err := service.MergeChunks(context.Background(), fileID, ".mov", 7, 1, int64(len("video-data")))
 	if err != nil {
 		t.Fatalf("merge should not fail when storage closes its reader: %v", err)
 	}
 	if !strings.HasSuffix(objectKey, ".mov") {
 		t.Fatalf("expected object key to preserve extension, got %q", objectKey)
+	}
+}
+
+func TestMergeChunksRejectsMissingChunk(t *testing.T) {
+	fileID := "abcdef0123456789abcdef0123456789"
+	chunkDir := uploadChunkDir(8, fileID)
+	t.Cleanup(func() { _ = os.RemoveAll(chunkDir) })
+
+	if err := os.MkdirAll(chunkDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(chunkDir, "0"), []byte("first"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(chunkDir, "2"), []byte("third"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	service := &Service{fileStorage: closingTestStorage{}}
+	if _, _, err := service.MergeChunks(context.Background(), fileID, ".mp4", 8, 3, 10); err == nil || !strings.Contains(err.Error(), "chunk 1 missing") {
+		t.Fatalf("expected missing chunk error, got %v", err)
+	}
+}
+
+func TestMergeChunksRejectsWrongFileSize(t *testing.T) {
+	fileID := "fedcba9876543210fedcba9876543210"
+	chunkDir := uploadChunkDir(9, fileID)
+	t.Cleanup(func() { _ = os.RemoveAll(chunkDir) })
+
+	if err := os.MkdirAll(chunkDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(chunkDir, "0"), []byte("video-data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	service := &Service{fileStorage: closingTestStorage{}}
+	if _, _, err := service.MergeChunks(context.Background(), fileID, ".mp4", 9, 1, 999); err == nil || !strings.Contains(err.Error(), "size mismatch") {
+		t.Fatalf("expected file size mismatch, got %v", err)
 	}
 }

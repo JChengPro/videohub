@@ -134,6 +134,8 @@ type ChunkStatusResponse struct {
 
 // 前端合并分片请求：传 file_id，后端按片号顺序拼成完整视频文件
 type MergeChunksRequest struct {
-	FileID  string `json:"file_id"`
-	FileExt string `json:"file_ext"`
+	FileID      string `json:"file_id"`
+	FileExt     string `json:"file_ext"`
+	TotalChunks int    `json:"total_chunks"`
+	FileSize    int64  `json:"file_size"`
 }
